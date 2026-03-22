@@ -1,0 +1,172 @@
+[
+  {
+    "id": "noir",
+    "name": "Noir",
+    "description": "Pure black and white, gallery aesthetic",
+    "colors": {
+      "background": "#0a0a0a",
+      "water": "#111111",
+      "land": "#0a0a0a",
+      "parks": "#0f0f0f",
+      "buildings": "#141414",
+      "roads": { "primary": "#2a2a2a", "secondary": "#1a1a1a", "tertiary": "#141414" },
+      "rail": "#1a1a1a",
+      "text": "#ffffff",
+      "textSecondary": "#666666"
+    },
+    "runPath": { "core": "#ffffff", "glow": "#ffffff", "compilation": "#ffffff" }
+  },
+  {
+    "id": "midnight-blue",
+    "name": "Midnight Blue",
+    "description": "Deep navy atlas with golden accents",
+    "colors": {
+      "background": "#0d1b2a",
+      "water": "#081525",
+      "land": "#0d1b2a",
+      "parks": "#0f2233",
+      "buildings": "#142840",
+      "roads": { "primary": "#1b3a5c", "secondary": "#15304d", "tertiary": "#112640" },
+      "rail": "#15304d",
+      "text": "#d4af37",
+      "textSecondary": "#7a8fa6"
+    },
+    "runPath": { "core": "#d4af37", "glow": "#d4af37", "compilation": "#d4af37" }
+  },
+  {
+    "id": "japanese-ink",
+    "name": "Japanese Ink",
+    "description": "Sumi-e inspired, warm paper tones",
+    "colors": {
+      "background": "#f5f0e8",
+      "water": "#e8e0d0",
+      "land": "#f5f0e8",
+      "parks": "#e8e4d8",
+      "buildings": "#ddd8cc",
+      "roads": { "primary": "#bbb5a5", "secondary": "#ccc6b8", "tertiary": "#ddd8cc" },
+      "rail": "#ccc6b8",
+      "text": "#2c2c2c",
+      "textSecondary": "#8a8275"
+    },
+    "runPath": { "core": "#c23b22", "glow": "#c23b22", "compilation": "#c23b22" }
+  },
+  {
+    "id": "blueprint",
+    "name": "Blueprint",
+    "description": "Technical drawing on engineering blue",
+    "colors": {
+      "background": "#1a3a5c",
+      "water": "#15304d",
+      "land": "#1a3a5c",
+      "parks": "#1e4068",
+      "buildings": "#234b78",
+      "roads": { "primary": "#3a6b9f", "secondary": "#2d5a8a", "tertiary": "#234b78" },
+      "rail": "#2d5a8a",
+      "text": "#e0e8f0",
+      "textSecondary": "#8aacc8"
+    },
+    "runPath": { "core": "#e0e8f0", "glow": "#e0e8f0", "compilation": "#e0e8f0" }
+  },
+  {
+    "id": "coral",
+    "name": "Coral",
+    "description": "Warm coral tones with deep sea contrast",
+    "colors": {
+      "background": "#1a1215",
+      "water": "#120c0f",
+      "land": "#1a1215",
+      "parks": "#1f161a",
+      "buildings": "#251b20",
+      "roads": { "primary": "#3d2d33", "secondary": "#2f2228", "tertiary": "#251b20" },
+      "rail": "#2f2228",
+      "text": "#ff7f7f",
+      "textSecondary": "#996666"
+    },
+    "runPath": { "core": "#ff6b6b", "glow": "#ff6b6b", "compilation": "#ff8888" }
+  },
+  {
+    "id": "sage",
+    "name": "Sage",
+    "description": "Earthy greens, calm and natural",
+    "colors": {
+      "background": "#1a1f1a",
+      "water": "#121612",
+      "land": "#1a1f1a",
+      "parks": "#1f261f",
+      "buildings": "#252d25",
+      "roads": { "primary": "#3a4a3a", "secondary": "#2d3d2d", "tertiary": "#252d25" },
+      "rail": "#2d3d2d",
+      "text": "#a8c4a0",
+      "textSecondary": "#6b8a63"
+    },
+    "runPath": { "core": "#c8e6c0", "glow": "#a8c4a0", "compilation": "#a8c4a0" }
+  },
+  {
+    "id": "neon",
+    "name": "Neon",
+    "description": "Electric pink and cyan, night city vibes",
+    "colors": {
+      "background": "#0a0a14",
+      "water": "#060610",
+      "land": "#0a0a14",
+      "parks": "#0e0e1a",
+      "buildings": "#12121f",
+      "roads": { "primary": "#1a1a30", "secondary": "#141425", "tertiary": "#12121f" },
+      "rail": "#141425",
+      "text": "#ff00ff",
+      "textSecondary": "#00ffff"
+    },
+    "runPath": { "core": "#00ffff", "glow": "#ff00ff", "compilation": "#ff00ff" }
+  },
+  {
+    "id": "copper",
+    "name": "Copper",
+    "description": "Rich copper patina on dark stone",
+    "colors": {
+      "background": "#141210",
+      "water": "#0e0c0a",
+      "land": "#141210",
+      "parks": "#191614",
+      "buildings": "#1e1a17",
+      "roads": { "primary": "#33291f", "secondary": "#28211a", "tertiary": "#1e1a17" },
+      "rail": "#28211a",
+      "text": "#d4915c",
+      "textSecondary": "#8a6a4a"
+    },
+    "runPath": { "core": "#e8a86d", "glow": "#d4915c", "compilation": "#d4915c" }
+  },
+  {
+    "id": "arctic",
+    "name": "Arctic",
+    "description": "Icy whites and pale blues",
+    "colors": {
+      "background": "#e8eef4",
+      "water": "#d0dae6",
+      "land": "#e8eef4",
+      "parks": "#dde5ed",
+      "buildings": "#d0d8e2",
+      "roads": { "primary": "#b0bcc8", "secondary": "#c0cad4", "tertiary": "#d0d8e2" },
+      "rail": "#c0cad4",
+      "text": "#1a2a3a",
+      "textSecondary": "#5a6a7a"
+    },
+    "runPath": { "core": "#2a5a8a", "glow": "#2a5a8a", "compilation": "#3a6a9a" }
+  },
+  {
+    "id": "terracotta",
+    "name": "Terracotta",
+    "description": "Mediterranean warmth, sun-baked clay",
+    "colors": {
+      "background": "#1f1510",
+      "water": "#150f0a",
+      "land": "#1f1510",
+      "parks": "#261a14",
+      "buildings": "#2d1f18",
+      "roads": { "primary": "#4a3328", "secondary": "#3a2820", "tertiary": "#2d1f18" },
+      "rail": "#3a2820",
+      "text": "#e8a87a",
+      "textSecondary": "#8a6a50"
+    },
+    "runPath": { "core": "#f0c090", "glow": "#e8a87a", "compilation": "#e8a87a" }
+  }
+]
