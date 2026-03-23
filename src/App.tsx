@@ -4,11 +4,30 @@ import { useActivityIndex } from '@/features/data-import/hooks/useActivityData';
 import { ActivityBrowser } from '@/features/data-import/ui/ActivityBrowser';
 import { StravaConnectButton } from '@/features/data-import/ui/StravaConnectButton';
 import { PosterEditor } from '@/features/poster/ui/PosterEditor';
+import { GiftPurchase } from '@/features/checkout/ui/GiftPurchase';
+import { RedeemPage } from '@/features/checkout/ui/RedeemPage';
 
 type View =
   | { type: 'browse' }
   | { type: 'individual'; activity: ActivitySummary }
-  | { type: 'compilation'; activities: ActivitySummary[] };
+  | { type: 'compilation'; activities: ActivitySummary[] }
+  | { type: 'gift' }
+  | { type: 'redeem'; code: string; tier?: string }
+  | { type: 'gift-success' };
+
+function getInitialView(): View {
+  const path = window.location.pathname;
+  const params = new URLSearchParams(window.location.search);
+
+  if (path === '/gift') return { type: 'gift' };
+  if (path.startsWith('/redeem/')) {
+    const code = path.split('/redeem/')[1];
+    return { type: 'redeem', code };
+  }
+  if (path === '/gift/success') return { type: 'gift-success' };
+
+  return { type: 'browse' };
+}
 
 export default function App() {
   const {
@@ -17,8 +36,53 @@ export default function App() {
     connectStrava, disconnectStrava, refreshStrava,
   } = useActivityIndex();
 
-  const [view, setView] = useState<View>({ type: 'browse' });
+  const [view, setView] = useState<View>(getInitialView);
 
+  // Gift purchase page
+  if (view.type === 'gift') {
+    return <GiftPurchase />;
+  }
+
+  // Gift success page
+  if (view.type === 'gift-success') {
+    const sessionId = new URLSearchParams(window.location.search).get('session_id');
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="text-center max-w-md px-8">
+          <div className="text-4xl mb-4">🎉</div>
+          <h2 className="text-2xl tracking-[0.15em] uppercase mb-3" style={{ fontFamily: 'var(--font-display)' }}>
+            Gift Purchased!
+          </h2>
+          <p className="text-white/40 text-sm mb-6 leading-relaxed">
+            Your gift code has been generated. Check your email for the code and a shareable link
+            to send to the recipient.
+          </p>
+          <a
+            href="/"
+            className="inline-block px-6 py-3 rounded-lg bg-white text-black font-medium text-sm tracking-wider uppercase"
+          >
+            Back to RunInk
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  // Gift redemption page
+  if (view.type === 'redeem') {
+    return (
+      <RedeemPage
+        code={view.code}
+        onRedeemed={(tier, giftCode) => {
+          // After redeeming, go to the main app where they'll connect Strava and design
+          window.history.pushState({}, '', `/?redeemed=${giftCode}&tier=${tier}`);
+          setView({ type: 'browse' });
+        }}
+      />
+    );
+  }
+
+  // Poster editor views
   if (view.type === 'individual') {
     return (
       <PosterEditor
@@ -72,29 +136,28 @@ export default function App() {
 
             <div className="mt-12 grid grid-cols-3 gap-6 text-center">
               <div>
-                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>
-                  INDIVIDUAL
-                </div>
-                <div className="text-xs text-white/30">
-                  Single run posters with stats, km markers, and theme
-                </div>
+                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>INDIVIDUAL</div>
+                <div className="text-xs text-white/30">Single run posters with stats, km markers, and theme</div>
               </div>
               <div>
-                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>
-                  COMPILATION
-                </div>
-                <div className="text-xs text-white/30">
-                  All your runs in a city layered into one heat-map poster
-                </div>
+                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>COMPILATION</div>
+                <div className="text-xs text-white/30">All your runs in a city layered into one heat-map poster</div>
               </div>
               <div>
-                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>
-                  10 THEMES
-                </div>
-                <div className="text-xs text-white/30">
-                  Noir, Midnight Blue, Japanese Ink, and 7 more
-                </div>
+                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>10 THEMES</div>
+                <div className="text-xs text-white/30">Noir, Midnight Blue, Japanese Ink, and 7 more</div>
               </div>
+            </div>
+
+            {/* Gift link */}
+            <div className="mt-10 pt-6 border-t border-white/5">
+              <a
+                href="/gift"
+                onClick={(e) => { e.preventDefault(); setView({ type: 'gift' }); }}
+                className="text-sm text-white/30 hover:text-white/60 transition-colors"
+              >
+                🎁 Gift a poster to a runner
+              </a>
             </div>
           </div>
         </div>
@@ -102,9 +165,9 @@ export default function App() {
     );
   }
 
+  // Main app: activity browser
   return (
     <div className="h-screen flex flex-col">
-      {/* Header */}
       <header className="h-14 flex items-center px-6 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-lg tracking-[0.15em] uppercase" style={{ fontFamily: 'var(--font-display)' }}>
@@ -112,7 +175,14 @@ export default function App() {
           </h1>
           <span className="text-xs text-white/30">Your runs, beautifully mapped</span>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          <a
+            href="/gift"
+            onClick={(e) => { e.preventDefault(); setView({ type: 'gift' }); }}
+            className="text-xs text-white/30 hover:text-white/50"
+          >
+            🎁 Gift
+          </a>
           <StravaConnectButton
             auth={stravaAuth}
             loading={stravaLoading}
@@ -123,7 +193,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Content */}
       <main className="flex-1 overflow-hidden">
         {(loading || stravaLoading) && (
           <div className="h-full flex items-center justify-center">

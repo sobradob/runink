@@ -18,6 +18,7 @@ interface SettingsPanelProps {
   onThemeChange: (theme: Theme) => void;
   onExport: () => void;
   exporting: boolean;
+  orderButtonSlot?: React.ReactNode;
 }
 
 export function SettingsPanel({
@@ -35,6 +36,7 @@ export function SettingsPanel({
   onThemeChange,
   onExport,
   exporting,
+  orderButtonSlot,
 }: SettingsPanelProps) {
   const updateLayer = (key: keyof LayerVisibility, value: boolean) => {
     onConfigChange({ layers: { ...config.layers, [key]: value } });
@@ -200,16 +202,18 @@ export function SettingsPanel({
         />
       </Section>
 
-      {/* Export button */}
-      <div className="p-4 mt-auto border-t border-white/10">
+      {/* Export & Order buttons */}
+      <div className="p-4 mt-auto border-t border-white/10 space-y-2">
         <button
           onClick={onExport}
           disabled={exporting}
           className="w-full py-3 rounded-lg bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 disabled:opacity-50 transition-all"
         >
-          {exporting ? 'Exporting...' : 'Export PNG'}
+          {exporting ? 'Exporting...' : 'Export PNG (Free)'}
         </button>
-        <div className="text-xs text-white/30 text-center mt-2">
+        {/* OrderButton is rendered by the parent via the orderButton slot */}
+        {orderButtonSlot}
+        <div className="text-xs text-white/30 text-center mt-1">
           {config.dimensions.label} @ {config.dimensions.dpi} DPI
         </div>
       </div>

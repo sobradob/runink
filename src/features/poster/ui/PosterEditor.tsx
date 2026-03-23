@@ -10,6 +10,7 @@ import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
 import { SettingsPanel } from './SettingsPanel';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
+import { OrderButton } from '@/features/checkout/ui/OrderButton';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
 
 interface PosterEditorProps {
@@ -319,6 +320,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         onThemeChange={handleThemeChange}
         onExport={handleExport}
         exporting={exporting}
+        orderButtonSlot={<OrderButton posterConfig={config} />}
       />
     </div>
   );

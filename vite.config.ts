@@ -16,7 +16,11 @@ export default defineConfig({
         target: 'http://localhost:3009',
         changeOrigin: true,
       },
-      '/api/strava': {
+      '/api': {
+        target: 'http://localhost:3009',
+        changeOrigin: true,
+      },
+      '/uploads': {
         target: 'http://localhost:3009',
         changeOrigin: true,
       },

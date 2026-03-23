@@ -4,3 +4,5 @@ public/data/
 .DS_Store
 *.local
 .env
+data/runink.db
+data/uploads/
