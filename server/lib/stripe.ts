@@ -1,8 +1,15 @@
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-04-30.basil',
-});
+// Lazy-init Stripe so the server can start without a key configured
+let _stripe: Stripe | null = null;
+function getStripe(): Stripe {
+  if (!_stripe) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error('STRIPE_SECRET_KEY not configured. Set it in .env to enable payments.');
+    _stripe = new Stripe(key);
+  }
+  return _stripe;
+}
 
 export interface GiftTier {
   id: string;
@@ -86,7 +93,7 @@ export async function createGiftCheckoutSession(params: {
         quantity: 1,
       }];
 
-  const session = await stripe.checkout.sessions.create({
+  const session = await getStripe().checkout.sessions.create({
     mode: 'payment',
     line_items: lineItems,
     customer_email: params.purchaserEmail,
@@ -128,7 +135,7 @@ export async function createOrderCheckoutSession(params: {
         quantity: 1,
       }];
 
-  const session = await stripe.checkout.sessions.create({
+  const session = await getStripe().checkout.sessions.create({
     mode: 'payment',
     line_items: lineItems,
     success_url: params.successUrl,
@@ -148,7 +155,7 @@ export async function createOrderCheckoutSession(params: {
  */
 export function constructWebhookEvent(payload: string | Buffer, signature: string): Stripe.Event {
   const secret = process.env.STRIPE_WEBHOOK_SECRET || '';
-  return stripe.webhooks.constructEvent(payload, signature, secret);
+  return getStripe().webhooks.constructEvent(payload, signature, secret);
 }
 
-export { stripe };
+export { getStripe };

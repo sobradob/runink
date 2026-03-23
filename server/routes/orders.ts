@@ -102,8 +102,8 @@ ordersRouter.post('/:id/upload-url', async (req, res) => {
 });
 
 /** Local file upload endpoint (dev fallback when R2 not configured) */
-ordersRouter.put('/upload/:key(*)', express.raw({ type: 'image/png', limit: '50mb' }), (req, res) => {
-  const key = req.params.key;
+ordersRouter.put('/upload/*key', express.raw({ type: 'image/png', limit: '50mb' }), (req, res) => {
+  const key = (req.params as any).key;
   const data = req.body as Buffer;
 
   if (!data || data.length === 0) {
