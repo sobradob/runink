@@ -45,9 +45,9 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
     const map = new maplibregl.Map({
       container,
       style: buildMapStyle(theme),
-      preserveDrawingBuffer: true,
       attributionControl: false,
       interactive: false,
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     });
 
     await new Promise<void>((resolve) => {

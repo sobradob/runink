@@ -70,10 +70,10 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
         center: [-0.1276, 51.5074],
         zoom: 12,
         bearing: bearingRef.current,
-        preserveDrawingBuffer: true,
         attributionControl: false,
         fadeDuration: 0,
-      });
+        canvasContextAttributes: { preserveDrawingBuffer: true },
+      } as any);
 
       mapRef.current = map;
 
