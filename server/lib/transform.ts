@@ -57,7 +57,7 @@ export function stravaToActivitySummary(raw: StravaActivity): ActivitySummary {
   const location = raw.location_city
     || raw.location_state
     || raw.location_country
-    || 'Unknown';
+    || '';
 
   return {
     id: `strava_${raw.id}`,

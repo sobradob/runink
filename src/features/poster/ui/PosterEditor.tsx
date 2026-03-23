@@ -68,8 +68,8 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     themeId: 'noir',
     dimensions: POSTER_PRESETS[0],
     title: mode === 'individual'
-      ? (activity?.location ?? '')
-      : (activities?.[0]?.location ?? ''),
+      ? (activity?.location || activity?.name || '')
+      : (activities?.[0]?.location || ''),
     subtitle: mode === 'individual'
       ? formatDate(activity?.date ?? '')
       : '',

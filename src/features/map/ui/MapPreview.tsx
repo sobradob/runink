@@ -133,14 +133,28 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
     const map = mapRef.current;
     if (!map || !readyRef.current) return;
 
-    map.setStyle(buildMapStyle(theme));
-    map.once('style.load', () => {
+    // setStyle triggers an async reload — re-add our layers once it's done.
+    // MapLibre v5 fires 'style.load' but it can be unreliable, so we also
+    // listen for 'idle' as a fallback and use a flag to run only once.
+    let applied = false;
+    const reapply = () => {
+      if (applied) return;
+      applied = true;
       addRunPathLayers(map, theme);
       updateRunPaths(map, tracksRef.current);
       updateRunPathColors(map, theme, compilationRef.current);
       applyLayerVisibility(map, layersRef.current);
       syncHtmlMarkers(map, markersRef.current, theme, htmlMarkersRef);
-    });
+    };
+
+    map.setStyle(buildMapStyle(theme));
+    map.once('style.load', reapply);
+    // Fallback: if style.load doesn't fire within 2s, force reapply on idle
+    const fallback = setTimeout(() => {
+      if (!applied) map.once('idle', reapply);
+    }, 2000);
+
+    return () => clearTimeout(fallback);
   }, [theme.id]);
 
   // Update tracks — only fitBounds when tracks actually change
