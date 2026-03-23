@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "preprocess": "tsx scripts/preprocess-garmin.ts",
     "server": "tsx watch server/index.ts",
-    "server:prod": "NODE_ENV=production node --loader tsx server/index.ts",
-    "start": "NODE_ENV=production node --loader tsx server/index.ts",
+    "server:prod": "NODE_ENV=production node --import tsx server/index.ts",
+    "start": "NODE_ENV=production node --import tsx server/index.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run server\""
   },
   "dependencies": {
