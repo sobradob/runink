@@ -14,7 +14,7 @@ import { LOCAL_DIR } from './lib/storage.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-const PORT = parseInt(process.env.PORT || process.env.SERVER_PORT || '3009', 10);
+const PORT = parseInt(process.env.PORT || process.env.SERVER_PORT || '8080', 10);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const DIST_DIR = path.resolve(__dirname, '../dist');
 
