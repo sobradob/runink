@@ -16,6 +16,7 @@ interface PosterEditorProps {
   activity?: ActivitySummary;
   activities?: ActivitySummary[];
   mode: 'individual' | 'compilation';
+  stravaTracksMap?: Record<string, TrackData>;
   onBack: () => void;
 }
 
@@ -61,7 +62,7 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function PosterEditor({ activity, activities, mode, onBack }: PosterEditorProps) {
+export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBack }: PosterEditorProps) {
   const [config, setConfig] = useState<PosterConfig>({
     mode,
     themeId: 'noir',
@@ -90,9 +91,9 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
   const [placingIcon, setPlacingIcon] = useState<MarkerIcon | null>(null);
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
 
-  // Load track data
-  const { track: singleTrack } = useTrack(mode === 'individual' ? activity?.id ?? null : null);
-  const { tracks: compilationTracks, loadTracks } = useTracks();
+  // Load track data (Strava tracks are in-memory, Garmin tracks fetched from files)
+  const { track: singleTrack } = useTrack(mode === 'individual' ? activity?.id ?? null : null, stravaTracksMap);
+  const { tracks: compilationTracks, loadTracks } = useTracks(stravaTracksMap);
 
   useEffect(() => {
     if (mode === 'compilation' && activities) {

@@ -10,4 +10,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      '/auth': {
+        target: 'http://localhost:3009',
+        changeOrigin: true,
+      },
+      '/api/strava': {
+        target: 'http://localhost:3009',
+        changeOrigin: true,
+      },
+    },
+  },
 })

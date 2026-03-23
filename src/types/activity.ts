@@ -29,6 +29,7 @@ export interface ActivitySummary {
     maxLng: number;
   } | null;
   hasTrack: boolean;
+  source?: 'garmin' | 'strava';
 }
 
 export interface TrackData {

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import type { ActivitySummary } from '@/types/activity';
+import type { ActivitySummary, TrackData } from '@/types/activity';
 import { useActivityIndex } from '@/features/data-import/hooks/useActivityData';
 import { ActivityBrowser } from '@/features/data-import/ui/ActivityBrowser';
+import { StravaConnectButton } from '@/features/data-import/ui/StravaConnectButton';
 import { PosterEditor } from '@/features/poster/ui/PosterEditor';
 
 type View =
@@ -10,7 +11,12 @@ type View =
   | { type: 'compilation'; activities: ActivitySummary[] };
 
 export default function App() {
-  const { index, loading, error } = useActivityIndex();
+  const {
+    index, loading, error,
+    stravaAuth, stravaLoading, stravaTracksMap,
+    connectStrava, disconnectStrava, refreshStrava,
+  } = useActivityIndex();
+
   const [view, setView] = useState<View>({ type: 'browse' });
 
   if (view.type === 'individual') {
@@ -18,6 +24,7 @@ export default function App() {
       <PosterEditor
         activity={view.activity}
         mode="individual"
+        stravaTracksMap={stravaTracksMap}
         onBack={() => setView({ type: 'browse' })}
       />
     );
@@ -28,6 +35,7 @@ export default function App() {
       <PosterEditor
         activities={view.activities}
         mode="compilation"
+        stravaTracksMap={stravaTracksMap}
         onBack={() => setView({ type: 'browse' })}
       />
     );
@@ -43,6 +51,15 @@ export default function App() {
           </h1>
           <span className="text-xs text-white/30">Your runs, beautifully mapped</span>
         </div>
+        <div className="ml-auto">
+          <StravaConnectButton
+            auth={stravaAuth}
+            loading={stravaLoading}
+            onConnect={connectStrava}
+            onDisconnect={disconnectStrava}
+            onRefresh={refreshStrava}
+          />
+        </div>
       </header>
 
       {/* Content */}
@@ -56,16 +73,13 @@ export default function App() {
           </div>
         )}
 
-        {error && (
+        {error && !index && (
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-md px-4">
               <div className="text-red-400 mb-2 text-lg">Failed to load data</div>
               <div className="text-white/40 text-sm mb-4">{error}</div>
               <div className="text-white/20 text-xs">
-                Make sure you've run the preprocessing script:
-                <code className="block mt-2 bg-white/5 px-3 py-2 rounded text-white/50">
-                  npx tsx scripts/preprocess-garmin.ts
-                </code>
+                Connect your Strava account or run the preprocessing script for Garmin data.
               </div>
             </div>
           </div>
