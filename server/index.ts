@@ -47,9 +47,8 @@ if (IS_PRODUCTION || fs.existsSync(DIST_DIR)) {
   }));
 
   // SPA fallback: all non-API routes serve index.html
-  app.get('*', (req, res, next) => {
-    // Don't catch API routes
-    if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api/') || req.path.startsWith('/auth/') || req.path.startsWith('/uploads/')) {
       return next();
     }
     res.sendFile(path.join(DIST_DIR, 'index.html'));
