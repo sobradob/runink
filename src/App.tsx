@@ -150,7 +150,7 @@ export default function App() {
             </div>
 
             {/* Gift link */}
-            <div className="mt-10 pt-6 border-t border-white/5">
+            <div className="mt-10 pt-6 border-t border-white/5 space-y-4">
               <a
                 href="/gift"
                 onClick={(e) => { e.preventDefault(); setView({ type: 'gift' }); }}
@@ -158,6 +158,16 @@ export default function App() {
               >
                 🎁 Gift a poster to a runner
               </a>
+              {/* Strava attribution */}
+              <div className="flex justify-center">
+                <a href="https://www.strava.com" target="_blank" rel="noopener noreferrer">
+                  <img
+                    src="/assets/strava/powered-by-strava-white.svg"
+                    alt="Powered by Strava"
+                    className="h-5 opacity-30 hover:opacity-50 transition-opacity"
+                  />
+                </a>
+              </div>
             </div>
           </div>
         </div>

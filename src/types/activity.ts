@@ -30,6 +30,7 @@ export interface ActivitySummary {
   } | null;
   hasTrack: boolean;
   source?: 'garmin' | 'strava';
+  stravaUrl?: string; // e.g. https://www.strava.com/activities/12345
 }
 
 export interface TrackData {

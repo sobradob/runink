@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { authRouter } from './routes/auth.js';
 import { activitiesRouter } from './routes/activities.js';
@@ -13,7 +14,9 @@ import { LOCAL_DIR } from './lib/storage.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-const PORT = parseInt(process.env.SERVER_PORT || '3009', 10);
+const PORT = parseInt(process.env.PORT || process.env.SERVER_PORT || '3009', 10);
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const DIST_DIR = path.resolve(__dirname, '../dist');
 
 // Webhooks need raw body — must be before express.json()
 app.use('/api/webhooks', webhooksRouter);
@@ -21,7 +24,7 @@ app.use('/api/webhooks', webhooksRouter);
 app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
 
-// Mount routes
+// Mount API routes
 app.use('/auth', authRouter);
 app.use('/api/strava', activitiesRouter);
 app.use('/api/gift', giftRouter);
@@ -35,7 +38,29 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
+// Production: serve built frontend as static files
+if (IS_PRODUCTION || fs.existsSync(DIST_DIR)) {
+  // Serve static assets with cache headers
+  app.use(express.static(DIST_DIR, {
+    maxAge: IS_PRODUCTION ? '1y' : 0,
+    index: false, // Don't auto-serve index.html for /
+  }));
+
+  // SPA fallback: all non-API routes serve index.html
+  app.get('*', (req, res, next) => {
+    // Don't catch API routes
+    if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
+      return next();
+    }
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+
+  console.log(`Serving frontend from ${DIST_DIR}`);
+}
+
 app.listen(PORT, () => {
-  console.log(`RunInk API server running on http://localhost:${PORT}`);
-  console.log(`Strava OAuth redirect: ${process.env.STRAVA_REDIRECT_URI}`);
+  console.log(`RunInk server running on http://localhost:${PORT}`);
+  if (!IS_PRODUCTION) {
+    console.log(`Strava OAuth redirect: ${process.env.STRAVA_REDIRECT_URI}`);
+  }
 });

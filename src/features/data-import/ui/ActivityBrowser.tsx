@@ -293,8 +293,19 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
                 )}
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-white truncate">{activity.name}</div>
-                  <div className="text-xs text-white/40">
+                  <div className="text-xs text-white/40 flex items-center gap-1.5">
                     {formatDate(activity.date)} &middot; {activity.location}
+                    {activity.stravaUrl && (
+                      <a
+                        href={activity.stravaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[#FC5200] hover:underline font-medium"
+                      >
+                        View on Strava
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -311,6 +322,17 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
             No activities match your filters
           </div>
         )}
+
+        {/* Strava attribution */}
+        <div className="p-4 flex justify-center border-t border-white/5">
+          <a href="https://www.strava.com" target="_blank" rel="noopener noreferrer">
+            <img
+              src="/assets/strava/powered-by-strava-white.svg"
+              alt="Powered by Strava"
+              className="h-6 opacity-40 hover:opacity-60 transition-opacity"
+            />
+          </a>
+        </div>
       </div>
     </div>
   );

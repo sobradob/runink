@@ -24,6 +24,7 @@ export interface ActivitySummary {
   bounds: { minLat: number; maxLat: number; minLng: number; maxLng: number } | null;
   hasTrack: boolean;
   source: 'strava';
+  stravaUrl: string;
 }
 
 export interface TrackData {
@@ -81,6 +82,7 @@ export function stravaToActivitySummary(raw: StravaActivity): ActivitySummary {
     bounds,
     hasTrack: hasPolyline,
     source: 'strava',
+    stravaUrl: `https://www.strava.com/activities/${raw.id}`,
   };
 }
 
