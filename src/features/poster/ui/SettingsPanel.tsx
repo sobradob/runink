@@ -69,6 +69,32 @@ export function SettingsPanel({
         />
       </Section>
 
+      {/* Map orientation */}
+      <Section title="Orientation">
+        <div className="flex items-center gap-2 mb-2">
+          <button
+            onClick={() => onConfigChange({ bearing: 0 })}
+            className={`text-xs px-2 py-1 rounded border transition-all ${
+              config.bearing === 0
+                ? 'border-white/40 bg-white/10 text-white'
+                : 'border-white/10 text-white/40 hover:text-white/60'
+            }`}
+          >
+            North Up
+          </button>
+          <span className="text-xs text-white/30 ml-auto">{Math.round(config.bearing)}°</span>
+        </div>
+        <input
+          type="range"
+          min={-180}
+          max={180}
+          step={1}
+          value={config.bearing}
+          onChange={(e) => onConfigChange({ bearing: Number(e.target.value) })}
+          className="w-full accent-white"
+        />
+      </Section>
+
       {/* Display options */}
       <Section title="Display">
         <Toggle

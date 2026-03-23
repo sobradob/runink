@@ -58,7 +58,10 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
 
         if (tracks.length > 0) {
           const bbox = boundsFromTracks(tracks);
-          map.fitBounds(bboxToMaplibre(bbox, config.padding), { animate: false });
+          map.fitBounds(bboxToMaplibre(bbox, config.padding), {
+            animate: false,
+            bearing: config.bearing,
+          });
         }
 
         // Wait for tiles

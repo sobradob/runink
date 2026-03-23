@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import type { ActivitySummary } from '@/types/activity';
-import { filterActivities, getUniqueLocations } from '../services/garminLoader';
+import { filterActivities, getUniqueLocations, suggestRegions, geocodePlace } from '../services/garminLoader';
+import type { RegionFilter } from '../services/garminLoader';
 import { formatDistance, formatPace, formatDate } from '@/shared/utils/format';
 
 interface ActivityBrowserProps {
@@ -8,6 +9,8 @@ interface ActivityBrowserProps {
   onSelectSingle: (activity: ActivitySummary) => void;
   onSelectMultiple: (activities: ActivitySummary[]) => void;
 }
+
+type FilterMode = 'location' | 'region';
 
 export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }: ActivityBrowserProps) {
   const [search, setSearch] = useState('');
@@ -17,15 +20,54 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
 
+  // Region filter state
+  const [filterMode, setFilterMode] = useState<FilterMode>('location');
+  const [region, setRegion] = useState<RegionFilter | null>(null);
+  const [regionQuery, setRegionQuery] = useState('');
+  const [radiusKm, setRadiusKm] = useState(20);
+  const [geocoding, setGeocoding] = useState(false);
+
   const locations = useMemo(() => getUniqueLocations(activities), [activities]);
+  const suggestedRegions = useMemo(() => suggestRegions(activities), [activities]);
 
   const filtered = useMemo(
     () =>
-      filterActivities(activities, { search, location: location || undefined, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined })
+      filterActivities(activities, {
+        search,
+        location: filterMode === 'location' && location ? location : undefined,
+        region: filterMode === 'region' && region ? { ...region, radiusKm } : undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+      })
         .filter((a) => a.hasTrack)
         .sort((a, b) => b.timestamp - a.timestamp),
-    [activities, search, location, dateFrom, dateTo]
+    [activities, search, location, region, radiusKm, dateFrom, dateTo, filterMode]
   );
+
+  const handleGeocode = useCallback(async () => {
+    if (!regionQuery.trim()) return;
+    setGeocoding(true);
+    const result = await geocodePlace(regionQuery);
+    if (result) {
+      setRegion({
+        centerLat: result.lat,
+        centerLng: result.lng,
+        radiusKm,
+        label: result.name,
+      });
+    }
+    setGeocoding(false);
+  }, [regionQuery, radiusKm]);
+
+  const handleSelectRegionSuggestion = useCallback((r: { label: string; lat: number; lng: number }) => {
+    setRegion({
+      centerLat: r.lat,
+      centerLng: r.lng,
+      radiusKm,
+      label: r.label,
+    });
+    setRegionQuery(r.label);
+  }, [radiusKm]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -45,6 +87,11 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
     setSelectedIds(new Set(filtered.map((a) => a.id)));
   };
 
+  // Quick compilation: select all filtered and go straight to poster
+  const handleQuickCompilation = () => {
+    if (filtered.length > 1) onSelectMultiple(filtered);
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Filters */}
@@ -57,38 +104,135 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
           className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
         />
 
-        <div className="flex gap-2">
+        {/* Filter mode tabs */}
+        <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
+          <button
+            onClick={() => { setFilterMode('location'); setRegion(null); }}
+            className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${
+              filterMode === 'location' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/60'
+            }`}
+          >
+            By Location Name
+          </button>
+          <button
+            onClick={() => { setFilterMode('region'); setLocation(''); }}
+            className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${
+              filterMode === 'region' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/60'
+            }`}
+          >
+            By Region (Radius)
+          </button>
+        </div>
+
+        {/* Location dropdown */}
+        {filterMode === 'location' && (
           <select
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30"
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30"
           >
             <option value="">All locations</option>
             {locations.map((loc) => (
               <option key={loc} value={loc}>{loc}</option>
             ))}
           </select>
+        )}
 
+        {/* Region filter */}
+        {filterMode === 'region' && (
+          <div className="space-y-2">
+            {/* Suggested regions */}
+            <div className="flex flex-wrap gap-1.5">
+              {suggestedRegions.slice(0, 8).map((r) => (
+                <button
+                  key={r.label}
+                  onClick={() => handleSelectRegionSuggestion(r)}
+                  className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                    region?.label === r.label
+                      ? 'border-white/40 bg-white/15 text-white'
+                      : 'border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
+                  }`}
+                >
+                  {r.label} ({r.count})
+                </button>
+              ))}
+            </div>
+
+            {/* Custom place search */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Or search a place (e.g. Greater London)..."
+                value={regionQuery}
+                onChange={(e) => setRegionQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleGeocode()}
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+              />
+              <button
+                onClick={handleGeocode}
+                disabled={geocoding || !regionQuery.trim()}
+                className="px-3 py-2 rounded-lg bg-white/10 text-white/60 text-sm hover:bg-white/15 disabled:opacity-30 transition-colors"
+              >
+                {geocoding ? '...' : 'Search'}
+              </button>
+            </div>
+
+            {/* Radius slider */}
+            {region && (
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-white/40 w-12">Radius</span>
+                <input
+                  type="range"
+                  min={5}
+                  max={100}
+                  step={5}
+                  value={radiusKm}
+                  onChange={(e) => setRadiusKm(Number(e.target.value))}
+                  className="flex-1 accent-white"
+                />
+                <span className="text-xs text-white/60 w-14 text-right">{radiusKm} km</span>
+              </div>
+            )}
+
+            {region && (
+              <div className="text-xs text-white/30">
+                Showing runs within {radiusKm}km of {region.label}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Date filters */}
+        <div className="flex gap-2">
           <input
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-white/30"
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-white/30"
           />
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-white/30"
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-white/30"
           />
         </div>
 
-        {/* Mode toggle */}
+        {/* Actions */}
         <div className="flex items-center justify-between">
           <span className="text-xs text-white/40">
             {filtered.length} runs with GPS tracks
           </span>
           <div className="flex gap-2">
+            {/* Quick compilation button */}
+            {filtered.length > 1 && !selectionMode && (
+              <button
+                onClick={handleQuickCompilation}
+                className="text-xs px-3 py-1 rounded bg-white text-black font-medium hover:bg-white/90"
+              >
+                Compile all {filtered.length} runs
+              </button>
+            )}
             {selectionMode && (
               <>
                 <button

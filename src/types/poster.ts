@@ -27,6 +27,7 @@ export interface PosterConfig {
   showCoordinates: boolean;
   showGradientFade: boolean;
   padding: number; // 0-1, fraction of map area for route padding
+  bearing: number; // degrees, 0 = north up
 }
 
 export interface ExportOptions {

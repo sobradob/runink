@@ -10,25 +10,27 @@ interface MapPreviewProps {
   theme: Theme;
   tracks: TrackData[];
   isCompilation: boolean;
+  bearing: number;
   className?: string;
 }
 
-export function MapPreview({ theme, tracks, isCompilation, className }: MapPreviewProps) {
+export function MapPreview({ theme, tracks, isCompilation, bearing, className }: MapPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
   const tracksRef = useRef(tracks);
   const themeRef = useRef(theme);
   const compilationRef = useRef(isCompilation);
+  const bearingRef = useRef(bearing);
   tracksRef.current = tracks;
   themeRef.current = theme;
   compilationRef.current = isCompilation;
+  bearingRef.current = bearing;
 
   // Initialize map once, after layout
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Wait a frame so the container has its layout dimensions
     const rafId = requestAnimationFrame(() => {
       if (!containerRef.current) return;
 
@@ -37,11 +39,11 @@ export function MapPreview({ theme, tracks, isCompilation, className }: MapPrevi
         style: buildMapStyle(themeRef.current),
         center: [-0.1276, 51.5074],
         zoom: 12,
+        bearing: bearingRef.current,
         preserveDrawingBuffer: true,
         attributionControl: false,
       });
 
-      // Resize observer to handle container dimension changes
       const ro = new ResizeObserver(() => {
         map.resize();
       });
@@ -56,17 +58,14 @@ export function MapPreview({ theme, tracks, isCompilation, className }: MapPrevi
         if (currentTracks.length > 0) {
           updateRunPaths(map, currentTracks);
           const bbox = boundsFromTracks(currentTracks);
-          map.fitBounds(bboxToMaplibre(bbox, 0.15), { animate: false });
+          map.fitBounds(bboxToMaplibre(bbox, 0.15), {
+            animate: false,
+            bearing: bearingRef.current,
+          });
         }
       });
 
       mapRef.current = map;
-
-      // Cleanup
-      const container = containerRef.current;
-      return () => {
-        ro.disconnect();
-      };
     });
 
     return () => {
@@ -103,9 +102,20 @@ export function MapPreview({ theme, tracks, isCompilation, className }: MapPrevi
 
     if (tracks.length > 0) {
       const bbox = boundsFromTracks(tracks);
-      map.fitBounds(bboxToMaplibre(bbox, 0.15), { animate: true, duration: 800 });
+      map.fitBounds(bboxToMaplibre(bbox, 0.15), {
+        animate: true,
+        duration: 800,
+        bearing: bearingRef.current,
+      });
     }
   }, [tracks]);
+
+  // Update bearing
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !readyRef.current) return;
+    map.rotateTo(bearing, { animate: true, duration: 300 });
+  }, [bearing]);
 
   // Update compilation mode colors
   useEffect(() => {

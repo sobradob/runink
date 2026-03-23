@@ -33,6 +33,7 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
     showCoordinates: true,
     showGradientFade: true,
     padding: 0.15,
+    bearing: 0,
   });
 
   const [theme, setTheme] = useState<Theme>(getDefaultTheme());
@@ -144,6 +145,7 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
               theme={theme}
               tracks={tracks}
               isCompilation={mode === 'compilation'}
+              bearing={config.bearing}
               className="rounded-sm"
             />
 

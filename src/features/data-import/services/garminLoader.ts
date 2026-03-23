@@ -1,4 +1,5 @@
 import type { ActivityIndex, ActivitySummary, TrackData } from '@/types/activity';
+import { distanceKm } from '@/shared/geo/bounds';
 
 const DATA_BASE = '/data';
 
@@ -31,10 +32,18 @@ export function getUniqueLocations(activities: ActivitySummary[]): string[] {
   return Array.from(locs).sort();
 }
 
+export interface RegionFilter {
+  centerLat: number;
+  centerLng: number;
+  radiusKm: number;
+  label: string;
+}
+
 export function filterActivities(
   activities: ActivitySummary[],
   filters: {
     location?: string;
+    region?: RegionFilter;
     dateFrom?: string;
     dateTo?: string;
     minDistance?: number;
@@ -43,7 +52,17 @@ export function filterActivities(
   }
 ): ActivitySummary[] {
   return activities.filter((a) => {
-    if (filters.location && a.location !== filters.location) return false;
+    // Region filter (radius-based) takes priority over location dropdown
+    if (filters.region) {
+      if (!a.startPoint) return false;
+      const dist = distanceKm(
+        filters.region.centerLat, filters.region.centerLng,
+        a.startPoint.lat, a.startPoint.lng
+      );
+      if (dist > filters.region.radiusKm) return false;
+    } else if (filters.location) {
+      if (a.location !== filters.location) return false;
+    }
     if (filters.dateFrom && a.date < filters.dateFrom) return false;
     if (filters.dateTo && a.date > filters.dateTo) return false;
     if (filters.minDistance && a.distance < filters.minDistance * 1000) return false;
@@ -54,4 +73,65 @@ export function filterActivities(
     }
     return true;
   });
+}
+
+/** Geocode a place name using Nominatim (free, no API key) */
+export async function geocodePlace(query: string): Promise<{ lat: number; lng: number; name: string } | null> {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'RunInk/1.0' } });
+    const results = await res.json();
+    if (results.length === 0) return null;
+    return {
+      lat: parseFloat(results[0].lat),
+      lng: parseFloat(results[0].lon),
+      name: results[0].display_name.split(',')[0],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Find common regions from activities by clustering start points */
+export function suggestRegions(activities: ActivitySummary[]): { label: string; lat: number; lng: number; count: number }[] {
+  // Group by location name, compute average center for each
+  const groups = new Map<string, { lats: number[]; lngs: number[] }>();
+  for (const a of activities) {
+    if (!a.startPoint || !a.location) continue;
+    const existing = groups.get(a.location);
+    if (existing) {
+      existing.lats.push(a.startPoint.lat);
+      existing.lngs.push(a.startPoint.lng);
+    } else {
+      groups.set(a.location, { lats: [a.startPoint.lat], lngs: [a.startPoint.lng] });
+    }
+  }
+
+  // Merge nearby location groups into regions
+  const locations = Array.from(groups.entries()).map(([label, { lats, lngs }]) => ({
+    label,
+    lat: lats.reduce((s, v) => s + v, 0) / lats.length,
+    lng: lngs.reduce((s, v) => s + v, 0) / lngs.length,
+    count: lats.length,
+  }));
+
+  // Sort by count descending, merge locations within 25km of each other
+  locations.sort((a, b) => b.count - a.count);
+  const regions: typeof locations = [];
+
+  for (const loc of locations) {
+    const existing = regions.find((r) => distanceKm(r.lat, r.lng, loc.lat, loc.lng) < 25);
+    if (existing) {
+      // Merge into existing region
+      const totalCount = existing.count + loc.count;
+      existing.lat = (existing.lat * existing.count + loc.lat * loc.count) / totalCount;
+      existing.lng = (existing.lng * existing.count + loc.lng * loc.count) / totalCount;
+      existing.count = totalCount;
+      // Keep the label of the biggest contributor
+    } else {
+      regions.push({ ...loc });
+    }
+  }
+
+  return regions.sort((a, b) => b.count - a.count);
 }
