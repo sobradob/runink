@@ -56,6 +56,69 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
         updateRunPaths(map, tracks);
         updateRunPathColors(map, theme, config.mode === 'compilation');
 
+        // Apply layer visibility
+        const layerGroups: Record<string, string[]> = {
+          water: ['water', 'waterway'],
+          parks: ['landuse-park', 'landcover'],
+          buildings: ['buildings'],
+          roads: ['roads-primary', 'roads-secondary', 'roads-tertiary'],
+          rail: ['rail'],
+        };
+        if (config.layers) {
+          for (const [group, layerIds] of Object.entries(layerGroups)) {
+            const visible = config.layers[group as keyof typeof config.layers];
+            for (const id of layerIds) {
+              if (map.getLayer(id)) {
+                map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+              }
+            }
+          }
+        }
+
+        // Add markers
+        if (config.markers && config.markers.length > 0) {
+          map.addSource('markers', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: config.markers.map((m) => ({
+                type: 'Feature' as const,
+                properties: { label: m.label, type: m.type },
+                geometry: { type: 'Point' as const, coordinates: [m.lng, m.lat] },
+              })),
+            },
+          });
+          map.addLayer({
+            id: 'marker-circles',
+            type: 'circle',
+            source: 'markers',
+            paint: {
+              'circle-radius': ['match', ['get', 'type'], 'start', 5, 'finish', 5, 'km', 3, 4],
+              'circle-color': theme.runPath.core,
+              'circle-stroke-color': theme.colors.background,
+              'circle-stroke-width': 2,
+            },
+          });
+          map.addLayer({
+            id: 'marker-labels',
+            type: 'symbol',
+            source: 'markers',
+            layout: {
+              'text-field': ['get', 'label'],
+              'text-size': 11,
+              'text-offset': [0, 1.5],
+              'text-anchor': 'top',
+              'text-font': ['Open Sans Regular'],
+              'text-allow-overlap': true,
+            },
+            paint: {
+              'text-color': theme.colors.text,
+              'text-halo-color': theme.colors.background,
+              'text-halo-width': 1.5,
+            },
+          });
+        }
+
         if (tracks.length > 0) {
           const bbox = boundsFromTracks(tracks);
           map.fitBounds(bboxToMaplibre(bbox, config.padding), {

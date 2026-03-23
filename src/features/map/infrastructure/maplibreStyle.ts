@@ -1,8 +1,30 @@
 import type { Theme } from '@/types/theme';
 import type { StyleSpecification } from 'maplibre-gl';
 
+// Cache the resolved tile URL from the TileJSON endpoint
+let resolvedTileUrl: string | null = null;
+
+async function resolveTileUrl(): Promise<string> {
+  if (resolvedTileUrl) return resolvedTileUrl;
+  try {
+    const res = await fetch('https://tiles.openfreemap.org/planet');
+    const json = await res.json();
+    resolvedTileUrl = json.tiles[0];
+  } catch {
+    // Fallback to direct pattern
+    resolvedTileUrl = 'https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf';
+  }
+  return resolvedTileUrl!;
+}
+
+// Pre-resolve on module load
+resolveTileUrl();
+
 export function buildMapStyle(theme: Theme): StyleSpecification {
   const c = theme.colors;
+
+  // Use resolved URL or fallback
+  const tileUrl = resolvedTileUrl || 'https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf';
 
   return {
     version: 8,
@@ -10,7 +32,8 @@ export function buildMapStyle(theme: Theme): StyleSpecification {
     sources: {
       openmaptiles: {
         type: 'vector',
-        url: 'https://tiles.openfreemap.org/planet',
+        tiles: [tileUrl],
+        maxzoom: 14,
       },
     },
     glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',

@@ -28,7 +28,45 @@ export interface PosterConfig {
   showGradientFade: boolean;
   padding: number; // 0-1, fraction of map area for route padding
   bearing: number; // degrees, 0 = north up
+  layers: LayerVisibility;
+  markers: MapMarker[];
 }
+
+export interface LayerVisibility {
+  water: boolean;
+  parks: boolean;
+  buildings: boolean;
+  roads: boolean;
+  rail: boolean;
+}
+
+export type MarkerIcon = 'home' | 'pin' | 'heart' | 'star' | 'flag' | 'circle' | 'none';
+
+export interface MapMarker {
+  id: string;
+  lat: number;
+  lng: number;
+  label: string;
+  type: 'start' | 'finish' | 'km' | 'custom';
+  icon?: MarkerIcon;
+}
+
+export const MARKER_ICONS: { id: MarkerIcon; label: string; emoji: string }[] = [
+  { id: 'home', label: 'Home', emoji: '🏠' },
+  { id: 'pin', label: 'Pin', emoji: '📍' },
+  { id: 'heart', label: 'Heart', emoji: '❤️' },
+  { id: 'star', label: 'Star', emoji: '⭐' },
+  { id: 'flag', label: 'Flag', emoji: '🏁' },
+  { id: 'circle', label: 'Circle', emoji: '⬤' },
+];
+
+export const DEFAULT_LAYERS: LayerVisibility = {
+  water: true,
+  parks: true,
+  buildings: true,
+  roads: true,
+  rail: true,
+};
 
 export interface ExportOptions {
   format: 'png';

@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import maplibregl from 'maplibre-gl';
 import type { ActivitySummary, TrackData } from '@/types/activity';
 import type { Theme } from '@/types/theme';
-import type { PosterConfig } from '@/types/poster';
-import { POSTER_PRESETS } from '@/types/poster';
-import { getThemeById, getDefaultTheme } from '@/features/theme/infrastructure/themeRepository';
+import type { PosterConfig, MapMarker, MarkerIcon } from '@/types/poster';
+import { POSTER_PRESETS, DEFAULT_LAYERS } from '@/types/poster';
+import { getDefaultTheme } from '@/features/theme/infrastructure/themeRepository';
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
 import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
@@ -16,6 +17,48 @@ interface PosterEditorProps {
   activities?: ActivitySummary[];
   mode: 'individual' | 'compilation';
   onBack: () => void;
+}
+
+/** Generate km markers along a track */
+function generateKmMarkers(track: TrackData): MapMarker[] {
+  const markers: MapMarker[] = [];
+  if (track.coords.length < 2) return markers;
+
+  const [startLng, startLat] = track.coords[0];
+  markers.push({ id: 'start', lat: startLat, lng: startLng, label: 'Start', type: 'start' });
+
+  const [endLng, endLat] = track.coords[track.coords.length - 1];
+  markers.push({ id: 'finish', lat: endLat, lng: endLng, label: 'Finish', type: 'finish' });
+
+  let totalDist = 0;
+  let nextKm = 1;
+  for (let i = 1; i < track.coords.length; i++) {
+    const [lng1, lat1] = track.coords[i - 1];
+    const [lng2, lat2] = track.coords[i];
+    const segDist = haversineM(lat1, lng1, lat2, lng2);
+    totalDist += segDist;
+
+    while (totalDist >= nextKm * 1000) {
+      const overshoot = totalDist - nextKm * 1000;
+      const frac = 1 - overshoot / segDist;
+      const mLat = lat1 + (lat2 - lat1) * frac;
+      const mLng = lng1 + (lng2 - lng1) * frac;
+      markers.push({ id: `km-${nextKm}`, lat: mLat, lng: mLng, label: `${nextKm}`, type: 'km' });
+      nextKm++;
+    }
+  }
+
+  return markers;
+}
+
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export function PosterEditor({ activity, activities, mode, onBack }: PosterEditorProps) {
@@ -34,16 +77,23 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
     showGradientFade: true,
     padding: 0.15,
     bearing: 0,
+    layers: { ...DEFAULT_LAYERS },
+    markers: [],
   });
 
   const [theme, setTheme] = useState<Theme>(getDefaultTheme());
   const [exporting, setExporting] = useState(false);
+  const [showKmMarkers, setShowKmMarkers] = useState(false);
+  const [showStartFinish, setShowStartFinish] = useState(true);
+
+  // Marker placement state
+  const [placingIcon, setPlacingIcon] = useState<MarkerIcon | null>(null);
+  const mapInstanceRef = useRef<maplibregl.Map | null>(null);
 
   // Load track data
   const { track: singleTrack } = useTrack(mode === 'individual' ? activity?.id ?? null : null);
   const { tracks: compilationTracks, loadTracks } = useTracks();
 
-  // Load compilation tracks on mount
   useEffect(() => {
     if (mode === 'compilation' && activities) {
       loadTracks(activities.map((a) => a.id));
@@ -54,6 +104,25 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
     ? (singleTrack ? [singleTrack] : [])
     : compilationTracks;
 
+  // Auto-generate markers from tracks
+  const autoMarkers = useMemo(() => {
+    if (mode === 'compilation' || tracks.length === 0) return [];
+    const track = tracks[0];
+    const all = generateKmMarkers(track);
+    const result: MapMarker[] = [];
+    if (showStartFinish) {
+      result.push(...all.filter((m) => m.type === 'start' || m.type === 'finish'));
+    }
+    if (showKmMarkers) {
+      result.push(...all.filter((m) => m.type === 'km'));
+    }
+    return result;
+  }, [tracks, mode, showKmMarkers, showStartFinish]);
+
+  const allMarkers = useMemo(() => {
+    return [...autoMarkers, ...config.markers];
+  }, [autoMarkers, config.markers]);
+
   const handleConfigChange = useCallback((update: Partial<PosterConfig>) => {
     setConfig((prev) => ({ ...prev, ...update }));
   }, []);
@@ -61,6 +130,55 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
   const handleThemeChange = useCallback((newTheme: Theme) => {
     setTheme(newTheme);
     setConfig((prev) => ({ ...prev, themeId: newTheme.id }));
+  }, []);
+
+  // Handle map click for placing markers
+  const handleMapReady = useCallback((map: maplibregl.Map) => {
+    mapInstanceRef.current = map;
+  }, []);
+
+  // Set up click handler when placing mode is active
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (!placingIcon) {
+      map.getCanvas().style.cursor = '';
+      return;
+    }
+
+    map.getCanvas().style.cursor = 'crosshair';
+
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      const { lng, lat } = e.lngLat;
+      const newMarker: MapMarker = {
+        id: `custom-${Date.now()}`,
+        lat,
+        lng,
+        label: '',
+        type: 'custom',
+        icon: placingIcon,
+      };
+      setConfig((prev) => ({
+        ...prev,
+        markers: [...prev.markers, newMarker],
+      }));
+      setPlacingIcon(null);
+      map.getCanvas().style.cursor = '';
+    };
+
+    map.once('click', onClick);
+    return () => {
+      map.off('click', onClick);
+      map.getCanvas().style.cursor = '';
+    };
+  }, [placingIcon]);
+
+  const handleRemoveMarker = useCallback((markerId: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      markers: prev.markers.filter((m) => m.id !== markerId),
+    }));
   }, []);
 
   const handleExport = useCallback(async () => {
@@ -90,7 +208,7 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
       const blob = await renderPosterToBlob({
         theme,
         tracks,
-        config,
+        config: { ...config, markers: allMarkers },
         title: config.title,
         subtitle: config.subtitle,
         statsText,
@@ -104,9 +222,8 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
     } finally {
       setExporting(false);
     }
-  }, [tracks, theme, config, mode, activity, activities]);
+  }, [tracks, theme, config, allMarkers, mode, activity, activities]);
 
-  // Aspect ratio for preview
   const aspectRatio = config.dimensions.widthMm / config.dimensions.heightMm;
 
   return (
@@ -124,6 +241,19 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
             </svg>
             Back to activities
           </button>
+
+          {/* Placing mode banner */}
+          {placingIcon && (
+            <div className="mx-auto flex items-center gap-2 text-sm text-yellow-400 animate-pulse">
+              <span>Click on the map to place marker</span>
+              <button
+                onClick={() => setPlacingIcon(null)}
+                className="text-xs px-2 py-0.5 rounded bg-white/10 text-white/60 hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
 
           <div className="ml-auto text-xs text-white/30">
             {mode === 'individual' ? activity?.name : `${activities?.length ?? 0} runs`}
@@ -146,10 +276,12 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
               tracks={tracks}
               isCompilation={mode === 'compilation'}
               bearing={config.bearing}
+              layers={config.layers}
+              markers={allMarkers}
               className="rounded-sm"
+              onMapReady={handleMapReady}
             />
 
-            {/* Stats overlay */}
             <StatsOverlay
               activity={activity}
               activities={activities}
@@ -161,7 +293,6 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
               mode={mode}
             />
 
-            {/* Loading state */}
             {tracks.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                 <div className="text-white/40 text-sm">Loading track data...</div>
@@ -175,6 +306,14 @@ export function PosterEditor({ activity, activities, mode, onBack }: PosterEdito
       <SettingsPanel
         config={config}
         theme={theme}
+        mode={mode}
+        showKmMarkers={showKmMarkers}
+        showStartFinish={showStartFinish}
+        placingIcon={placingIcon}
+        onShowKmMarkersChange={setShowKmMarkers}
+        onShowStartFinishChange={setShowStartFinish}
+        onPlaceIcon={setPlacingIcon}
+        onRemoveMarker={handleRemoveMarker}
         onConfigChange={handleConfigChange}
         onThemeChange={handleThemeChange}
         onExport={handleExport}
