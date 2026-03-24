@@ -55,9 +55,16 @@ export function PrivacyPolicy() {
                 we collect your shipping address and email for order fulfillment. Payment details are
                 processed directly by Stripe and never stored on our servers.
               </li>
+              <li>
+                <strong className="text-white/80">Anonymized usage analytics</strong>: we collect anonymous,
+                aggregated data about how you interact with RunInk (e.g., pages visited, features used)
+                to improve the service. This data cannot be used to identify you personally.
+              </li>
             </ul>
             <p className="mt-2">
-              We do not collect health metrics, heart rate data, weight, or any medical information.
+              While fitness APIs may return additional fields such as heart rate or calorie data, we do
+              not use, display, or store health metrics. Activity data is cached temporarily in memory
+              to render your posters and is not persisted to a database.
             </p>
           </section>
 
@@ -115,6 +122,22 @@ export function PrivacyPolicy() {
                 <strong className="text-white/80">Amazon Web Services (S3)</strong> &mdash; to store
                 generated poster images securely.
               </li>
+              <li>
+                <strong className="text-white/80">Mixpanel</strong> &mdash; for anonymized product analytics.
+                We do not send any personally identifiable information or fitness data to Mixpanel.
+                See{' '}
+                <a href="https://mixpanel.com/legal/privacy-policy/" className="underline" target="_blank" rel="noopener noreferrer">
+                  Mixpanel&apos;s Privacy Policy
+                </a>.
+              </li>
+              <li>
+                <strong className="text-white/80">OpenFreeMap</strong> &mdash; to serve map tiles for poster
+                rendering. Your browser requests map tiles directly from openfreemap.org, which may
+                log your IP address. No fitness or personal data is sent. See{' '}
+                <a href="https://openfreemap.org" className="underline" target="_blank" rel="noopener noreferrer">
+                  OpenFreeMap
+                </a>.
+              </li>
             </ul>
           </section>
 
@@ -131,11 +154,42 @@ export function PrivacyPolicy() {
           </section>
 
           <section>
-            <h2 className="text-white text-base font-medium mb-3">6. Data Retention</h2>
+            <h2 className="text-white text-base font-medium mb-3">6. Legal Basis for Processing</h2>
+            <p>We process your data on the following legal bases:</p>
+            <ul className="list-disc pl-5 mt-2 space-y-1">
+              <li>
+                <strong className="text-white/80">Contract performance</strong>: processing your fitness
+                data to generate posters and fulfill orders is necessary to provide the service you requested.
+              </li>
+              <li>
+                <strong className="text-white/80">Legitimate interest</strong>: anonymized analytics to
+                improve the service.
+              </li>
+              <li>
+                <strong className="text-white/80">Consent</strong>: connecting your Strava or Garmin
+                account constitutes explicit consent to access your activity data for poster generation.
+                You may withdraw consent at any time by disconnecting your account.
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-white text-base font-medium mb-3">7. International Data Transfers</h2>
             <p>
-              We retain your fitness activity data only while your account is connected. When you
-              disconnect your Strava or Garmin account, your cached activity data is removed from our
-              servers.
+              RunInk is operated from the United States. Your data may be processed by third-party services
+              located in the United States and other countries. By using RunInk, you consent to the transfer
+              of your data to these jurisdictions, which may have different data protection laws than your
+              country of residence.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-white text-base font-medium mb-3">8. Data Retention</h2>
+            <p>
+              Your fitness activity data is cached temporarily in server memory only while your session
+              is active. It is not written to a database. When you disconnect your Strava or Garmin
+              account, your session is deleted and any cached activity data expires automatically
+              within minutes.
             </p>
             <p className="mt-2">
               Order records (shipping address, order details) are retained for accounting and customer
@@ -144,7 +198,7 @@ export function PrivacyPolicy() {
           </section>
 
           <section>
-            <h2 className="text-white text-base font-medium mb-3">7. Your Rights</h2>
+            <h2 className="text-white text-base font-medium mb-3">9. Your Rights</h2>
             <p>You have the right to:</p>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li>
@@ -169,23 +223,27 @@ export function PrivacyPolicy() {
           </section>
 
           <section>
-            <h2 className="text-white text-base font-medium mb-3">8. Cookies</h2>
+            <h2 className="text-white text-base font-medium mb-3">10. Cookies</h2>
             <p>
-              RunInk uses only essential cookies required for the service to function:
+              RunInk uses the following cookies:
             </p>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li>
                 <strong className="text-white/80">Session cookies</strong> to maintain your authenticated
                 session after connecting your Strava or Garmin account.
               </li>
+              <li>
+                <strong className="text-white/80">Analytics cookies</strong> set by Mixpanel to track
+                anonymized usage patterns. These do not contain personally identifiable information.
+              </li>
             </ul>
             <p className="mt-2">
-              We do not use advertising cookies, tracking pixels, or third-party analytics cookies.
+              We do not use advertising cookies or tracking pixels.
             </p>
           </section>
 
           <section>
-            <h2 className="text-white text-base font-medium mb-3">9. Children&apos;s Privacy</h2>
+            <h2 className="text-white text-base font-medium mb-3">11. Children&apos;s Privacy</h2>
             <p>
               RunInk is not directed at children under the age of 16. We do not knowingly collect data
               from children. If you believe a child has provided us with personal data, please contact
@@ -194,7 +252,7 @@ export function PrivacyPolicy() {
           </section>
 
           <section>
-            <h2 className="text-white text-base font-medium mb-3">10. Changes to This Policy</h2>
+            <h2 className="text-white text-base font-medium mb-3">12. Changes to This Policy</h2>
             <p>
               We may update this privacy policy from time to time. Material changes will be indicated by
               updating the effective date at the top of this page. Continued use of RunInk after changes
@@ -203,7 +261,7 @@ export function PrivacyPolicy() {
           </section>
 
           <section>
-            <h2 className="text-white text-base font-medium mb-3">11. Contact</h2>
+            <h2 className="text-white text-base font-medium mb-3">13. Contact</h2>
             <p>
               For questions about this privacy policy or your data, contact:
             </p>
