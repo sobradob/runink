@@ -6,6 +6,7 @@ import { StravaConnectButton } from '@/features/data-import/ui/StravaConnectButt
 import { PosterEditor } from '@/features/poster/ui/PosterEditor';
 import { GiftPurchase } from '@/features/checkout/ui/GiftPurchase';
 import { RedeemPage } from '@/features/checkout/ui/RedeemPage';
+import { PrivacyPolicy } from '@/features/legal/PrivacyPolicy';
 
 type View =
   | { type: 'browse' }
@@ -13,12 +14,14 @@ type View =
   | { type: 'compilation'; activities: ActivitySummary[] }
   | { type: 'gift' }
   | { type: 'redeem'; code: string; tier?: string }
-  | { type: 'gift-success' };
+  | { type: 'gift-success' }
+  | { type: 'privacy' };
 
 function getInitialView(): View {
   const path = window.location.pathname;
   const params = new URLSearchParams(window.location.search);
 
+  if (path === '/privacy') return { type: 'privacy' };
   if (path === '/gift') return { type: 'gift' };
   if (path.startsWith('/redeem/')) {
     const code = path.split('/redeem/')[1];
@@ -37,6 +40,11 @@ export default function App() {
   } = useActivityIndex();
 
   const [view, setView] = useState<View>(getInitialView);
+
+  // Privacy policy page
+  if (view.type === 'privacy') {
+    return <PrivacyPolicy />;
+  }
 
   // Gift purchase page
   if (view.type === 'gift') {
@@ -168,6 +176,15 @@ export default function App() {
                   />
                 </a>
               </div>
+              <div className="flex justify-center">
+                <a
+                  href="/privacy"
+                  onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/privacy'); setView({ type: 'privacy' }); }}
+                  className="text-xs text-white/20 hover:text-white/40 transition-colors"
+                >
+                  Privacy Policy
+                </a>
+              </div>
             </div>
           </div>
         </div>
@@ -186,6 +203,13 @@ export default function App() {
           <span className="text-xs text-white/30">Your runs, beautifully mapped</span>
         </div>
         <div className="ml-auto flex items-center gap-3">
+          <a
+            href="/privacy"
+            onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/privacy'); setView({ type: 'privacy' }); }}
+            className="text-xs text-white/30 hover:text-white/50"
+          >
+            Privacy
+          </a>
           <a
             href="/gift"
             onClick={(e) => { e.preventDefault(); setView({ type: 'gift' }); }}
