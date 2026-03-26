@@ -41,12 +41,13 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
   document.body.appendChild(container);
 
   try {
-    // Render map
+    // Render map at exactly 1:1 pixel ratio to avoid tile-boundary artifacts
     const map = new maplibregl.Map({
       container,
       style: buildMapStyle(theme),
       attributionControl: false,
       interactive: false,
+      pixelRatio: 1,
       canvasContextAttributes: { preserveDrawingBuffer: true },
     });
 

@@ -7,6 +7,8 @@ import { PosterEditor } from '@/features/poster/ui/PosterEditor';
 import { GiftPurchase } from '@/features/checkout/ui/GiftPurchase';
 import { RedeemPage } from '@/features/checkout/ui/RedeemPage';
 import { PrivacyPolicy } from '@/features/legal/PrivacyPolicy';
+import { OrderSuccessPage } from '@/features/checkout/ui/OrderSuccessPage';
+import { OrderStatusPage } from '@/features/checkout/ui/OrderStatusPage';
 
 type View =
   | { type: 'browse' }
@@ -15,7 +17,9 @@ type View =
   | { type: 'gift' }
   | { type: 'redeem'; code: string; tier?: string }
   | { type: 'gift-success' }
-  | { type: 'privacy' };
+  | { type: 'privacy' }
+  | { type: 'order-success'; orderId: string }
+  | { type: 'order-status'; orderId: string };
 
 function getInitialView(): View {
   const path = window.location.pathname;
@@ -23,6 +27,10 @@ function getInitialView(): View {
 
   if (path === '/privacy') return { type: 'privacy' };
   if (path === '/gift') return { type: 'gift' };
+  const orderSuccessMatch = path.match(/^\/order\/([^/]+)\/success$/);
+  if (orderSuccessMatch) return { type: 'order-success', orderId: orderSuccessMatch[1] };
+  const orderStatusMatch = path.match(/^\/order\/([^/]+)$/);
+  if (orderStatusMatch) return { type: 'order-status', orderId: orderStatusMatch[1] };
   if (path.startsWith('/redeem/')) {
     const code = path.split('/redeem/')[1];
     return { type: 'redeem', code };
@@ -44,6 +52,16 @@ export default function App() {
   // Privacy policy page
   if (view.type === 'privacy') {
     return <PrivacyPolicy />;
+  }
+
+  // Order success page (post-Stripe payment)
+  if (view.type === 'order-success') {
+    return <OrderSuccessPage orderId={view.orderId} />;
+  }
+
+  // Order status/tracking page
+  if (view.type === 'order-status') {
+    return <OrderStatusPage orderId={view.orderId} />;
   }
 
   // Gift purchase page

@@ -13,15 +13,15 @@ export default defineConfig({
   server: {
     proxy: {
       '/auth': {
-        target: 'http://localhost:3009',
+        target: 'http://localhost:3008',
         changeOrigin: true,
       },
       '/api': {
-        target: 'http://localhost:3009',
+        target: 'http://localhost:3008',
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:3009',
+        target: 'http://localhost:3008',
         changeOrigin: true,
       },
     },

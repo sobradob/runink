@@ -53,6 +53,23 @@ export async function redeemGiftCode(code: string): Promise<{ tier: string }> {
   return res.json();
 }
 
+export interface OrderInfo {
+  orderId: string;
+  type: string;
+  tier: string;
+  status: string;
+  pngUrl: string | null;
+  gelatoOrderId: string | null;
+  posterConfig: any;
+  createdAt: string;
+}
+
+export async function getOrderDetails(orderId: string): Promise<OrderInfo> {
+  const res = await fetch(`/api/orders/${orderId}`);
+  if (!res.ok) throw new Error('Order not found');
+  return res.json();
+}
+
 export async function createDirectOrder(params: {
   tierId: string;
   posterConfig?: any;

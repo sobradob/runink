@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { createOrder, getOrder, updateOrder } from '../lib/db.js';
 import { createOrderCheckoutSession, getTier } from '../lib/stripe.js';
-import { createPrintOrder } from '../lib/printful.js';
+import { createPrintOrder } from '../lib/gelato.js';
 import { getUploadUrl, getPublicUrl, storeLocal, getLocalPath } from '../lib/storage.js';
 import express from 'express';
 import fs from 'fs';
@@ -78,7 +78,8 @@ ordersRouter.get('/:id', (req, res) => {
     tier: order.tier,
     status: order.status,
     pngUrl: order.png_url,
-    printfulOrderId: order.printful_order_id,
+    gelatoOrderId: order.printful_order_id,
+    posterConfig: order.poster_config ? JSON.parse(order.poster_config) : null,
     createdAt: order.created_at,
   });
 });
@@ -146,10 +147,10 @@ ordersRouter.post('/:id/ship', async (req, res) => {
   // Get the poster PNG URL
   const pngUrl = order.png_url || getPublicUrl(`posters/${order.order_id}.png`);
 
-  // Create Printful order
-  if (process.env.PRINTFUL_API_KEY) {
+  // Create Gelato print order
+  if (process.env.GELATO_API_KEY) {
     try {
-      const printfulOrder = await createPrintOrder({
+      const gelatoOrder = await createPrintOrder({
         externalId: order.order_id,
         tierId: order.tier,
         imageUrl: pngUrl,
@@ -157,23 +158,22 @@ ordersRouter.post('/:id/ship', async (req, res) => {
       });
 
       updateOrder(order.order_id, {
-        printful_order_id: String(printfulOrder.id),
+        printful_order_id: gelatoOrder.id,
         status: 'fulfilling',
       });
 
       res.json({
         orderId: order.order_id,
         status: 'fulfilling',
-        printfulOrderId: printfulOrder.id,
+        gelatoOrderId: gelatoOrder.id,
       });
     } catch (err: any) {
-      console.error('Printful order failed:', err);
-      // Still save the order, just mark as needs-attention
+      console.error('Gelato order failed:', err);
       updateOrder(order.order_id, { status: 'fulfillment-error' });
       res.status(500).json({ error: 'Print fulfillment failed. We will process your order manually.' });
     }
   } else {
-    // No Printful configured — mark as pending manual fulfillment
+    // No Gelato configured — mark as pending manual fulfillment
     updateOrder(order.order_id, { status: 'pending-fulfillment' });
     res.json({
       orderId: order.order_id,

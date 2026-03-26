@@ -183,40 +183,48 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     }));
   }, []);
 
+  const buildRenderOptions = useCallback(() => {
+    const statsText: string[] = [];
+    let coordinateText: string | undefined;
+
+    if (mode === 'individual' && activity) {
+      statsText.push(formatDistance(activity.distance));
+      statsText.push(formatDuration(activity.movingDuration || activity.duration));
+      statsText.push(formatPace(activity.avgPace));
+      if (activity.elevationGain > 0) statsText.push(formatElevation(activity.elevationGain));
+      if (activity.startPoint) {
+        coordinateText = `${activity.startPoint.lat.toFixed(4)}°N, ${Math.abs(activity.startPoint.lng).toFixed(4)}°${activity.startPoint.lng >= 0 ? 'E' : 'W'}`;
+      }
+    } else if (activities) {
+      const totalDist = activities.reduce((s, a) => s + a.distance, 0);
+      const totalDur = activities.reduce((s, a) => s + (a.movingDuration || a.duration), 0);
+      statsText.push(`${activities.length} runs`);
+      statsText.push(formatDistance(totalDist));
+      statsText.push(formatDuration(totalDur));
+    }
+
+    return {
+      theme,
+      tracks,
+      config: { ...config, markers: allMarkers },
+      title: config.title,
+      subtitle: config.subtitle,
+      statsText,
+      coordinateText,
+    };
+  }, [theme, tracks, config, allMarkers, mode, activity, activities]);
+
+  /** Render poster to PNG blob — used by both export and order flow */
+  const renderPoster = useCallback(async (): Promise<Blob> => {
+    return renderPosterToBlob(buildRenderOptions());
+  }, [buildRenderOptions]);
+
   const handleExport = useCallback(async () => {
     if (tracks.length === 0) return;
     setExporting(true);
 
     try {
-      const statsText: string[] = [];
-      let coordinateText: string | undefined;
-
-      if (mode === 'individual' && activity) {
-        statsText.push(formatDistance(activity.distance));
-        statsText.push(formatDuration(activity.movingDuration || activity.duration));
-        statsText.push(formatPace(activity.avgPace));
-        if (activity.elevationGain > 0) statsText.push(formatElevation(activity.elevationGain));
-        if (activity.startPoint) {
-          coordinateText = `${activity.startPoint.lat.toFixed(4)}°N, ${Math.abs(activity.startPoint.lng).toFixed(4)}°${activity.startPoint.lng >= 0 ? 'E' : 'W'}`;
-        }
-      } else if (activities) {
-        const totalDist = activities.reduce((s, a) => s + a.distance, 0);
-        const totalDur = activities.reduce((s, a) => s + (a.movingDuration || a.duration), 0);
-        statsText.push(`${activities.length} runs`);
-        statsText.push(formatDistance(totalDist));
-        statsText.push(formatDuration(totalDur));
-      }
-
-      const blob = await renderPosterToBlob({
-        theme,
-        tracks,
-        config: { ...config, markers: allMarkers },
-        title: config.title,
-        subtitle: config.subtitle,
-        statsText,
-        coordinateText,
-      });
-
+      const blob = await renderPoster();
       const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.png`;
       downloadBlob(blob, filename);
     } catch (err) {
@@ -320,7 +328,14 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         onThemeChange={handleThemeChange}
         onExport={handleExport}
         exporting={exporting}
-        orderButtonSlot={<OrderButton posterConfig={config} />}
+        orderButtonSlot={<OrderButton
+          posterConfig={{
+            ...config,
+            activityId: activity?.id,
+            activityIds: activities?.map(a => a.id),
+          }}
+          renderPoster={renderPoster}
+        />}
       />
     </div>
   );

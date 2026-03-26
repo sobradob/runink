@@ -1,28 +1,46 @@
 import { useState } from 'react';
-import { createDirectOrder, type GiftTierInfo } from '../services/checkoutApi';
+import { createDirectOrder, getUploadUrl, uploadPosterPng } from '../services/checkoutApi';
 import { GIFT_TIERS_CLIENT } from './tiers';
 
 interface OrderButtonProps {
   posterConfig: any;
+  renderPoster?: () => Promise<Blob>;
   onOrderCreated?: (orderId: string) => void;
 }
 
-export function OrderButton({ posterConfig, onOrderCreated }: OrderButtonProps) {
+export function OrderButton({ posterConfig, renderPoster, onOrderCreated }: OrderButtonProps) {
   const [open, setOpen] = useState(false);
   const [selectedTier, setSelectedTier] = useState('a3-poster');
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
 
   const handleOrder = async () => {
     setLoading(true);
     try {
+      // Step 1: Create order to get an order ID
+      setStatus('Creating order...');
       const { orderId, checkoutUrl } = await createDirectOrder({
         tierId: selectedTier,
         posterConfig,
       });
       onOrderCreated?.(orderId);
+
+      // Step 2: Render and upload poster PNG (if render function provided)
+      if (renderPoster) {
+        setStatus('Rendering poster...');
+        const blob = await renderPoster();
+
+        setStatus('Uploading artwork...');
+        const { url, method } = await getUploadUrl(orderId);
+        await uploadPosterPng(url, method, blob);
+      }
+
+      // Step 3: Redirect to Stripe checkout
+      setStatus('Redirecting to payment...');
       window.location.href = checkoutUrl;
-    } catch (e) {
+    } catch (e: any) {
       console.error('Order failed:', e);
+      setStatus(`Error: ${e.message || 'Unknown error'}`);
       setLoading(false);
     }
   };
@@ -64,11 +82,12 @@ export function OrderButton({ posterConfig, onOrderCreated }: OrderButtonProps) 
         disabled={loading}
         className="w-full py-3 rounded-lg bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 disabled:opacity-50 transition-all"
       >
-        {loading ? 'Creating order...' : 'Proceed to Payment'}
+        {loading ? status || 'Processing...' : 'Proceed to Payment'}
       </button>
       <button
         onClick={() => setOpen(false)}
-        className="w-full py-1 text-xs text-white/30 hover:text-white/50"
+        disabled={loading}
+        className="w-full py-1 text-xs text-white/30 hover:text-white/50 disabled:opacity-30"
       >
         Cancel
       </button>
