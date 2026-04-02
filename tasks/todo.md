@@ -1,32 +1,39 @@
 # RunInk — TODO
 
-## Bugs (branch: stripe-printer-integration)
+## Bugs
 
-- [x] **Upload URL routing mismatch** — `storage.ts` returned `/api/upload/...` but route was at `/api/orders/upload/...`. Fixed.
-- [x] **Express 5 wildcard param is array** — `*key` param comes back as `string[]`, not `string`. Fixed with `Array.isArray` check.
-- [ ] **PNG export horizontal lines + UI mismatch** — Partially addressed:
-  - Added dynamic WebGL max texture size detection (no more hardcoded 4096)
-  - Added `fadeDuration: 0` and `transition.duration: 0` to prevent half-loaded tiles
-  - Added double-idle wait for more reliable tile rendering
-  - **Needs real-world testing** to confirm banding is resolved
+- [ ] **PNG export horizontal lines + UI/export mismatch**
+  - What user sees in the UI preview doesn't match the exported PNG
+  - Partially addressed (dynamic WebGL texture detection, disabled tile fade, double-idle wait)
+  - Needs real-world testing to confirm banding is resolved
+  - File: `src/features/poster/infrastructure/renderer/index.ts`
+
+## UX Improvements
+
+- [ ] **Improve checkout process with poster preview**
+  - Show a preview of the poster in the Order Print modal before payment
+  - Currently the user clicks "Order Print", selects a tier, and immediately goes to Stripe — no visual confirmation of what they're buying
+  - Consider rendering a thumbnail preview in the tier selection modal
+
+## Infrastructure
+
+- [ ] End-to-end test of full purchase flow (Stripe test mode → shipping → Gelato)
+- [ ] Verify domain on Resend, switch `EMAIL_FROM` to `orders@runink.app`
+- [ ] Gelato webhook integration (auto-update order status on print/ship/deliver)
 
 ## Completed
 
-- [x] Upload URL routing fix (local dev path mismatch)
-- [x] Store `png_url` in DB after upload (both local and R2)
-- [x] Poster dimension presets now match Gelato product sizes (30x40, 40x60, 50x70)
-- [x] Order flow renders at print-correct dimensions (not editor preview dimensions)
-- [x] Public URL strategy for Gelato access (`PUBLIC_URL` env or request-based base URL)
-- [x] Email sending via Resend (order confirmation, gift code delivery, shipping confirmation)
-- [x] Renamed `printful_order_id` → `gelato_order_id` (with migration for existing DBs)
-- [x] Updated privacy policy: Printful → Gelato, AWS S3 → Cloudflare R2
-
-## Still needed before production
-
-- [ ] Configure `STRIPE_WEBHOOK_SECRET` + register webhook URL in Stripe dashboard
-- [ ] Set up Cloudflare R2 bucket with public access for poster PNGs
-- [ ] Set `RESEND_API_KEY` and `EMAIL_FROM` env vars for email sending
-- [ ] Set `PUBLIC_URL` env var to production domain (for Gelato image access)
-- [ ] End-to-end test of full purchase flow (Stripe test mode → shipping → Gelato)
-- [ ] Gelato webhook integration (auto-update order status on print/ship/deliver)
-- [ ] Shipping rate display in ShippingForm
+- [x] Upload URL routing fix
+- [x] Express 5 wildcard param fix
+- [x] Store `png_url` in DB after upload
+- [x] Poster dimension presets match Gelato sizes
+- [x] Order flow renders at print-correct dimensions
+- [x] Public URL strategy for Gelato access
+- [x] Email sending via Resend
+- [x] Renamed `printful_order_id` → `gelato_order_id`
+- [x] Updated privacy policy
+- [x] Poster preview on success page (post-payment)
+- [x] Cloudflare R2 configured and tested
+- [x] Stripe webhook configured
+- [x] Resend API key configured
+- [x] Deployed to DigitalOcean
