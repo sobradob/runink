@@ -68,6 +68,11 @@ export function OrderSuccessPage({ orderId }: OrderSuccessPageProps) {
                 Order {orderId} — now tell us where to ship it.
               </p>
             </div>
+            {order?.pngUrl && (
+              <div className="mb-6 rounded-lg overflow-hidden border border-white/10">
+                <img src={order.pngUrl} alt="Your poster" className="w-full" />
+              </div>
+            )}
             <ShippingForm
               orderId={orderId}
               onComplete={() => setStep('done')}
