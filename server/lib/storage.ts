@@ -49,9 +49,10 @@ export async function getUploadUrl(key: string): Promise<{ url: string; method: 
   }
 
   // Local fallback: return a local endpoint
+  // Route is mounted at /api/orders, so the upload handler is at /api/orders/upload/*key
   fs.mkdirSync(LOCAL_DIR, { recursive: true });
   return {
-    url: `/api/upload/${key}`,
+    url: `/api/orders/upload/${key}`,
     method: 'PUT',
     local: true,
   };
@@ -59,12 +60,18 @@ export async function getUploadUrl(key: string): Promise<{ url: string; method: 
 
 /**
  * Get the public URL for a stored poster PNG.
+ * When baseUrl is provided (from request context), constructs an absolute URL
+ * that external services like Gelato can access.
  */
-export function getPublicUrl(key: string): string {
+export function getPublicUrl(key: string, baseUrl?: string): string {
   if (R2_CONFIGURED && process.env.R2_PUBLIC_URL) {
     return `${process.env.R2_PUBLIC_URL}/${key}`;
   }
-  // Local fallback
+  // Local: use PUBLIC_URL env if set (e.g., ngrok tunnel), otherwise construct from baseUrl
+  const publicBase = process.env.PUBLIC_URL || baseUrl;
+  if (publicBase) {
+    return `${publicBase.replace(/\/$/, '')}/uploads/${key}`;
+  }
   return `/uploads/${key}`;
 }
 

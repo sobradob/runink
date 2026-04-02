@@ -25,8 +25,14 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
   const width = mmToPixels(config.dimensions.widthMm, config.dimensions.dpi);
   const height = mmToPixels(config.dimensions.heightMm, config.dimensions.dpi);
 
-  // Cap at reasonable resolution to avoid WebGL texture limits
-  const maxSide = 4096;
+  // Detect max WebGL texture size; fall back to 4096 if detection fails
+  let maxSide = 4096;
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    if (gl) maxSide = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
+  } catch { /* use default */ }
+
+  // Scale down only if needed, keeping integer dimensions to avoid tile seam artifacts
   const scale = Math.min(1, maxSide / Math.max(width, height));
   const renderWidth = Math.round(width * scale);
   const renderHeight = Math.round(height * scale);
@@ -42,13 +48,20 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
 
   try {
     // Render map at exactly 1:1 pixel ratio to avoid tile-boundary artifacts
+    const style = buildMapStyle(theme);
+    // Disable tile fade-in to prevent partially transparent tiles in capture
+    if (style.transition === undefined) style.transition = {};
+    style.transition.duration = 0;
+    style.transition.delay = 0;
+
     const map = new maplibregl.Map({
       container,
-      style: buildMapStyle(theme),
+      style,
       attributionControl: false,
       interactive: false,
       pixelRatio: 1,
       canvasContextAttributes: { preserveDrawingBuffer: true },
+      fadeDuration: 0,
     });
 
     await new Promise<void>((resolve) => {
@@ -128,8 +141,20 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
           });
         }
 
-        // Wait for tiles
-        map.once('idle', () => resolve());
+        // Wait for tiles — use multiple idle checks to ensure all tiles are fully composited
+        const waitForTiles = () => {
+          map.once('idle', () => {
+            // Force a re-render and wait one more idle cycle to catch any late tiles
+            map.triggerRepaint();
+            map.once('idle', () => resolve());
+          });
+        };
+        if (map.loaded() && map.areTilesLoaded()) {
+          map.triggerRepaint();
+          map.once('idle', () => resolve());
+        } else {
+          waitForTiles();
+        }
       });
     });
 

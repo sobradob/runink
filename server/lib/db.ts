@@ -39,7 +39,7 @@ db.exec(`
     tier TEXT NOT NULL,
     poster_config TEXT,
     png_url TEXT,
-    printful_order_id TEXT,
+    gelato_order_id TEXT,
     stripe_session_id TEXT,
     stripe_payment_intent TEXT,
     shipping_name TEXT,
@@ -59,6 +59,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
   CREATE INDEX IF NOT EXISTS idx_orders_gift_code ON orders(gift_code);
 `);
+
+// Migration: rename printful_order_id → gelato_order_id (legacy from Printful integration)
+try {
+  const cols = db.pragma('table_info(orders)') as { name: string }[];
+  if (cols.some(c => c.name === 'printful_order_id')) {
+    db.exec('ALTER TABLE orders RENAME COLUMN printful_order_id TO gelato_order_id');
+  }
+} catch { /* column already renamed or table doesn't exist yet */ }
 
 // === Gift Codes ===
 
@@ -131,7 +139,7 @@ export interface Order {
   tier: string;
   poster_config: string | null;
   png_url: string | null;
-  printful_order_id: string | null;
+  gelato_order_id: string | null;
   stripe_session_id: string | null;
   shipping_name: string | null;
   shipping_city: string | null;
@@ -174,7 +182,7 @@ export function getOrder(orderId: string): Order | null {
 
 export function updateOrder(orderId: string, updates: Partial<{
   png_url: string;
-  printful_order_id: string;
+  gelato_order_id: string;
   shipping_name: string;
   shipping_address_1: string;
   shipping_address_2: string;

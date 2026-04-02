@@ -6,3 +6,5 @@ public/data/
 .env
 data/runink.db
 data/uploads/
+HANDOVER_*.md
+.claude/

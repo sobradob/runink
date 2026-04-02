@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { createDirectOrder, getUploadUrl, uploadPosterPng } from '../services/checkoutApi';
-import { GIFT_TIERS_CLIENT } from './tiers';
+import { GIFT_TIERS_CLIENT, PRINT_DIMENSIONS } from './tiers';
+import type { PosterDimensions } from '@/types/poster';
 
 interface OrderButtonProps {
   posterConfig: any;
-  renderPoster?: () => Promise<Blob>;
+  renderPoster?: (printDimensions?: PosterDimensions) => Promise<Blob>;
   onOrderCreated?: (orderId: string) => void;
 }
 
@@ -25,14 +26,15 @@ export function OrderButton({ posterConfig, renderPoster, onOrderCreated }: Orde
       });
       onOrderCreated?.(orderId);
 
-      // Step 2: Render and upload poster PNG (if render function provided)
+      // Step 2: Render and upload poster PNG at the correct print dimensions
       if (renderPoster) {
         setStatus('Rendering poster...');
-        const blob = await renderPoster();
+        const printDims = PRINT_DIMENSIONS[selectedTier];
+        const blob = await renderPoster(printDims ? { ...printDims, label: selectedTier } : undefined);
 
         setStatus('Uploading artwork...');
-        const { url, method } = await getUploadUrl(orderId);
-        await uploadPosterPng(url, method, blob);
+        const { url, method, local } = await getUploadUrl(orderId);
+        await uploadPosterPng(url, method, blob, orderId, local);
       }
 
       // Step 3: Redirect to Stripe checkout

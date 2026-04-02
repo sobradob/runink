@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import express from 'express';
-import { constructWebhookEvent } from '../lib/stripe.js';
+import { constructWebhookEvent, getTier } from '../lib/stripe.js';
 import { createGiftCode, getGiftCode } from '../lib/db.js';
 import { updateOrder, getOrder } from '../lib/db.js';
+import { sendOrderConfirmation, sendGiftCode } from '../lib/email.js';
 
 export const webhooksRouter = Router();
 
@@ -45,7 +46,19 @@ webhooksRouter.post(
 
           console.log(`Gift code created: ${gift.code} (tier: ${gift.tier})`);
 
-          // TODO: Send email with gift code to purchaser
+          // Send gift code email to purchaser
+          const purchaserEmail = session.customer_email || session.customer_details?.email;
+          if (purchaserEmail) {
+            const tier = getTier(gift.tier);
+            const baseUrl = `${req.protocol}://${req.get('host')}`;
+            sendGiftCode({
+              to: purchaserEmail,
+              code: gift.code,
+              tierName: tier?.name || gift.tier,
+              recipientName: metadata.recipient_name,
+              redeemUrl: `${baseUrl}/redeem/${gift.code}`,
+            }).catch(() => {}); // fire-and-forget
+          }
         }
 
         if (metadata.type === 'order') {
@@ -56,6 +69,19 @@ webhooksRouter.post(
           });
 
           console.log(`Order paid: ${metadata.order_id}`);
+
+          // Send order confirmation email
+          const customerEmail = session.customer_email || session.customer_details?.email;
+          if (customerEmail) {
+            const order = getOrder(metadata.order_id);
+            const tier = order ? getTier(order.tier) : null;
+            sendOrderConfirmation({
+              to: customerEmail,
+              orderId: metadata.order_id,
+              tierName: tier?.name || order?.tier || 'Poster',
+              amount: `$${((session.amount_total || 0) / 100).toFixed(2)}`,
+            }).catch(() => {}); // fire-and-forget
+          }
         }
 
         break;

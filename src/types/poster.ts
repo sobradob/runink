@@ -8,12 +8,16 @@ export interface PosterDimensions {
 }
 
 export const POSTER_PRESETS: PosterDimensions[] = [
-  { label: 'A4 Portrait', widthMm: 210, heightMm: 297, dpi: 300 },
-  { label: 'A3 Portrait', widthMm: 297, heightMm: 420, dpi: 300 },
-  { label: 'A4 Landscape', widthMm: 297, heightMm: 210, dpi: 300 },
-  { label: 'A3 Landscape', widthMm: 420, heightMm: 297, dpi: 300 },
-  { label: 'Square 30cm', widthMm: 300, heightMm: 300, dpi: 300 },
+  // Print sizes — match Gelato product dimensions exactly
+  { label: '30x40cm', widthMm: 300, heightMm: 400, dpi: 300 },
+  { label: '40x60cm', widthMm: 400, heightMm: 600, dpi: 300 },
+  { label: '50x70cm', widthMm: 500, heightMm: 700, dpi: 300 },
+  // Landscape variants
+  { label: '40x30cm', widthMm: 400, heightMm: 300, dpi: 300 },
+  { label: '60x40cm', widthMm: 600, heightMm: 400, dpi: 300 },
+  // Square
   { label: 'Square 40cm', widthMm: 400, heightMm: 400, dpi: 300 },
+  // Digital only
   { label: 'Instagram', widthMm: 108, heightMm: 108, dpi: 300 },
 ];
 

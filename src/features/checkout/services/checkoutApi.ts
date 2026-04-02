@@ -102,17 +102,24 @@ export async function getUploadUrl(orderId: string): Promise<{ url: string; meth
   return res.json();
 }
 
-export async function uploadPosterPng(uploadUrl: string, method: string, blob: Blob): Promise<void> {
+export async function uploadPosterPng(uploadUrl: string, method: string, blob: Blob, orderId: string, isLocal: boolean): Promise<void> {
   const res = await fetch(uploadUrl, {
     method,
     headers: { 'Content-Type': 'image/png' },
     body: blob,
   });
   if (!res.ok) throw new Error('Failed to upload poster');
+
+  // For R2 uploads, confirm the upload so the backend stores the png_url
+  if (!isLocal) {
+    const confirmRes = await fetch(`/api/orders/${orderId}/confirm-upload`, { method: 'POST' });
+    if (!confirmRes.ok) throw new Error('Failed to confirm upload');
+  }
 }
 
 export async function submitShipping(orderId: string, address: {
   name: string;
+  email?: string;
   address1: string;
   address2?: string;
   city: string;

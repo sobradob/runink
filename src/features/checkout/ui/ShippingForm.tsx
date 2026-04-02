@@ -9,6 +9,7 @@ interface ShippingFormProps {
 export function ShippingForm({ orderId, onComplete }: ShippingFormProps) {
   const [form, setForm] = useState({
     name: '',
+    email: '',
     address1: '',
     address2: '',
     city: '',
@@ -71,6 +72,9 @@ export function ShippingForm({ orderId, onComplete }: ShippingFormProps) {
 
       <input type="text" placeholder="Full name *" value={form.name}
         onChange={(e) => update('name', e.target.value)} className={inputClass} />
+
+      <input type="email" placeholder="Email address" value={form.email}
+        onChange={(e) => update('email', e.target.value)} className={inputClass} />
 
       <input type="text" placeholder="Address line 1 *" value={form.address1}
         onChange={(e) => update('address1', e.target.value)} className={inputClass} />

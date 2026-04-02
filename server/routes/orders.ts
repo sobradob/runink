@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { createOrder, getOrder, updateOrder } from '../lib/db.js';
 import { createOrderCheckoutSession, getTier } from '../lib/stripe.js';
-import { createPrintOrder } from '../lib/gelato.js';
+import { createPrintOrder, getShippingEstimate } from '../lib/gelato.js';
 import { getUploadUrl, getPublicUrl, storeLocal, getLocalPath } from '../lib/storage.js';
+import { sendShippingConfirmation } from '../lib/email.js';
 import express from 'express';
 import fs from 'fs';
 
@@ -78,7 +79,7 @@ ordersRouter.get('/:id', (req, res) => {
     tier: order.tier,
     status: order.status,
     pngUrl: order.png_url,
-    gelatoOrderId: order.printful_order_id,
+    gelatoOrderId: order.gelato_order_id,
     posterConfig: order.poster_config ? JSON.parse(order.poster_config) : null,
     createdAt: order.created_at,
   });
@@ -104,7 +105,9 @@ ordersRouter.post('/:id/upload-url', async (req, res) => {
 
 /** Local file upload endpoint (dev fallback when R2 not configured) */
 ordersRouter.put('/upload/*key', express.raw({ type: 'image/png', limit: '50mb' }), (req, res) => {
-  const key = (req.params as any).key;
+  // Express 5 returns wildcard params as arrays
+  const rawKey = (req.params as any).key;
+  const key = Array.isArray(rawKey) ? rawKey.join('/') : rawKey;
   const data = req.body as Buffer;
 
   if (!data || data.length === 0) {
@@ -112,7 +115,28 @@ ordersRouter.put('/upload/*key', express.raw({ type: 'image/png', limit: '50mb' 
   }
 
   const url = storeLocal(key, data);
+
+  // Store png_url in the order record if the key matches posters/{orderId}.png
+  const match = key.match(/^posters\/(ORD-[A-Z0-9]+)\.png$/);
+  if (match) {
+    updateOrder(match[1], { png_url: url });
+  }
+
   res.json({ url });
+});
+
+/** Confirm upload completed (used after R2 upload to store the public URL) */
+ordersRouter.post('/:id/confirm-upload', (req, res) => {
+  const order = getOrder(req.params.id);
+  if (!order) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const pngUrl = getPublicUrl(`posters/${order.order_id}.png`, baseUrl);
+  updateOrder(order.order_id, { png_url: pngUrl });
+
+  res.json({ pngUrl });
 });
 
 /** Submit shipping address and trigger print fulfillment */
@@ -127,7 +151,7 @@ ordersRouter.post('/:id/ship', async (req, res) => {
     return res.status(400).json({ error: 'Order not yet paid' });
   }
 
-  const { name, address1, address2, city, stateCode, countryCode, zip } = req.body;
+  const { name, email, address1, address2, city, stateCode, countryCode, zip } = req.body;
 
   if (!name || !address1 || !city || !countryCode || !zip) {
     return res.status(400).json({ error: 'Missing required shipping fields' });
@@ -144,8 +168,9 @@ ordersRouter.post('/:id/ship', async (req, res) => {
     shipping_zip: zip,
   });
 
-  // Get the poster PNG URL
-  const pngUrl = order.png_url || getPublicUrl(`posters/${order.order_id}.png`);
+  // Get the poster PNG URL — must be an absolute URL that Gelato can access
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const pngUrl = order.png_url || getPublicUrl(`posters/${order.order_id}.png`, baseUrl);
 
   // Create Gelato print order
   if (process.env.GELATO_API_KEY) {
@@ -154,13 +179,23 @@ ordersRouter.post('/:id/ship', async (req, res) => {
         externalId: order.order_id,
         tierId: order.tier,
         imageUrl: pngUrl,
-        shipping: { name, address1, address2, city, stateCode, countryCode, zip },
+        shipping: { name, email, address1, address2, city, stateCode, countryCode, zip },
       });
 
       updateOrder(order.order_id, {
-        printful_order_id: gelatoOrder.id,
+        gelato_order_id: gelatoOrder.id,
         status: 'fulfilling',
       });
+
+      // Send shipping confirmation email
+      if (email) {
+        const estimate = await getShippingEstimate({ tierId: order.tier, countryCode });
+        sendShippingConfirmation({
+          to: email,
+          orderId: order.order_id,
+          estimatedDelivery: estimate.estimatedDays,
+        }).catch(() => {}); // fire-and-forget
+      }
 
       res.json({
         orderId: order.order_id,

@@ -111,15 +111,15 @@ export function PrivacyPolicy() {
                 </a>.
               </li>
               <li>
-                <strong className="text-white/80">Printful</strong> &mdash; to print and ship your posters.
-                We share only your shipping address and the poster image with Printful for fulfillment.
+                <strong className="text-white/80">Gelato</strong> &mdash; to print and ship your posters.
+                We share only your shipping address and the poster image with Gelato for fulfillment.
                 See{' '}
-                <a href="https://www.printful.com/policies/privacy" className="underline" target="_blank" rel="noopener noreferrer">
-                  Printful&apos;s Privacy Policy
+                <a href="https://www.gelato.com/privacy" className="underline" target="_blank" rel="noopener noreferrer">
+                  Gelato&apos;s Privacy Policy
                 </a>.
               </li>
               <li>
-                <strong className="text-white/80">Amazon Web Services (S3)</strong> &mdash; to store
+                <strong className="text-white/80">Cloudflare (R2)</strong> &mdash; to store
                 generated poster images securely.
               </li>
               <li>

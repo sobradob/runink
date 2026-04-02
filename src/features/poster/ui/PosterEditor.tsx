@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { ActivitySummary, TrackData } from '@/types/activity';
 import type { Theme } from '@/types/theme';
-import type { PosterConfig, MapMarker, MarkerIcon } from '@/types/poster';
+import type { PosterConfig, PosterDimensions, MapMarker, MarkerIcon } from '@/types/poster';
 import { POSTER_PRESETS, DEFAULT_LAYERS } from '@/types/poster';
 import { getDefaultTheme } from '@/features/theme/infrastructure/themeRepository';
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
@@ -214,9 +214,14 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     };
   }, [theme, tracks, config, allMarkers, mode, activity, activities]);
 
-  /** Render poster to PNG blob — used by both export and order flow */
-  const renderPoster = useCallback(async (): Promise<Blob> => {
-    return renderPosterToBlob(buildRenderOptions());
+  /** Render poster to PNG blob — used by both export and order flow.
+   *  When printDimensions is provided (ordering), renders at those dimensions instead of editor config. */
+  const renderPoster = useCallback(async (printDimensions?: PosterDimensions): Promise<Blob> => {
+    const opts = buildRenderOptions();
+    if (printDimensions) {
+      opts.config = { ...opts.config, dimensions: printDimensions };
+    }
+    return renderPosterToBlob(opts);
   }, [buildRenderOptions]);
 
   const handleExport = useCallback(async () => {
