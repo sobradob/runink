@@ -10,6 +10,10 @@ import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
 import { SettingsPanel } from './SettingsPanel';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
+import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer';
+
+/** Flip to false to fall back to the old Canvas-based renderer */
+const USE_CAPTURE_RENDERER = true;
 import { OrderButton } from '@/features/checkout/ui/OrderButton';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
 
@@ -91,6 +95,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   // Marker placement state
   const [placingIcon, setPlacingIcon] = useState<MarkerIcon | null>(null);
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
 
   // Load track data (Strava tracks are in-memory, Garmin tracks fetched from files)
   const { track: singleTrack } = useTrack(mode === 'individual' ? activity?.id ?? null : null, stravaTracksMap);
@@ -217,12 +222,17 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   /** Render poster to PNG blob — used by both export and order flow.
    *  When printDimensions is provided (ordering), renders at those dimensions instead of editor config. */
   const renderPoster = useCallback(async (printDimensions?: PosterDimensions): Promise<Blob> => {
+    if (USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
+      const dims = printDimensions || config.dimensions;
+      return capturePosterToBlob(previewContainerRef.current, mapInstanceRef.current, dims);
+    }
+    // Fallback to old Canvas-based renderer
     const opts = buildRenderOptions();
     if (printDimensions) {
       opts.config = { ...opts.config, dimensions: printDimensions };
     }
     return renderPosterToBlob(opts);
-  }, [buildRenderOptions]);
+  }, [buildRenderOptions, config.dimensions]);
 
   const handleExport = useCallback(async () => {
     if (tracks.length === 0) return;
@@ -278,6 +288,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         {/* Preview area */}
         <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
           <div
+            ref={previewContainerRef}
             className="relative shadow-2xl"
             style={{
               width: '100%',

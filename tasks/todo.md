@@ -14,6 +14,7 @@
   - Show a preview of the poster in the Order Print modal before payment
   - Currently the user clicks "Order Print", selects a tier, and immediately goes to Stripe — no visual confirmation of what they're buying
   - Consider rendering a thumbnail preview in the tier selection modal
+  - Note: Order Print currently gated behind "Coming Soon" popup (`COMING_SOON` flag in OrderButton.tsx)
 
 ## Infrastructure
 
