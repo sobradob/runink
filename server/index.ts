@@ -47,10 +47,13 @@ if (IS_PRODUCTION || fs.existsSync(DIST_DIR)) {
   }));
 
   // SPA fallback: all non-API routes serve index.html
+  // No-cache on HTML so browsers always fetch the latest after a deploy
+  // (hashed JS/CSS bundles are already cache-busted by Vite)
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api/') || req.path.startsWith('/auth/') || req.path.startsWith('/uploads/')) {
       return next();
     }
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(DIST_DIR, 'index.html'));
   });
 

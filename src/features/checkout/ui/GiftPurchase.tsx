@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { fetchGiftTiers, purchaseGift, type GiftTierInfo } from '../services/checkoutApi';
+import { COMING_SOON, ComingSoonPopup } from './ComingSoon';
 
 export function GiftPurchase() {
   const [tiers, setTiers] = useState<GiftTierInfo[]>([]);
@@ -8,6 +9,7 @@ export function GiftPurchase() {
   const [purchaserEmail, setPurchaserEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   useEffect(() => {
     fetchGiftTiers()
@@ -107,7 +109,13 @@ export function GiftPurchase() {
 
           {/* Purchase button */}
           <button
-            onClick={handlePurchase}
+            onClick={() => {
+              if (COMING_SOON) {
+                setShowComingSoon(true);
+              } else {
+                handlePurchase();
+              }
+            }}
             disabled={loading || !selectedTier}
             className="w-full py-4 rounded-xl bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 disabled:opacity-50 transition-all"
           >
@@ -117,6 +125,8 @@ export function GiftPurchase() {
           <div className="text-center mt-4 text-xs text-white/20">
             Secure payment via Stripe. The recipient will receive a unique code to redeem their poster.
           </div>
+
+          {showComingSoon && <ComingSoonPopup onClose={() => setShowComingSoon(false)} />}
         </div>
       </div>
     </div>
