@@ -53,6 +53,7 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
 
   // Record original size before resizing so we can scale the HTML overlay
   const originalWidth = element.offsetWidth;
+  const overlay = element.querySelector('[data-stats-overlay]') as HTMLElement | null;
 
   try {
     // Resize to print dimensions
@@ -65,7 +66,6 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
 
     // Scale the StatsOverlay so text/padding match the larger canvas
     const overlayScale = renderWidth / originalWidth;
-    const overlay = element.querySelector('[data-stats-overlay]') as HTMLElement | null;
     if (overlay) {
       overlay.style.transform = `scale(${overlayScale})`;
       overlay.style.transformOrigin = 'bottom left';
