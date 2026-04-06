@@ -1,9 +1,20 @@
 import { toBlob } from 'html-to-image';
 import type maplibregl from 'maplibre-gl';
 import type { PosterDimensions } from '@/types/poster';
+import type { BBox } from '@/shared/geo/bounds';
+import { bboxToMaplibre } from '@/shared/geo/bounds';
 
 function mmToPixels(mm: number, dpi: number): number {
   return Math.round((mm / 25.4) * dpi);
+}
+
+interface CaptureOptions {
+  element: HTMLElement;
+  map: maplibregl.Map;
+  dimensions: PosterDimensions;
+  bounds: BBox;
+  padding: number;
+  bearing: number;
 }
 
 /**
@@ -11,15 +22,13 @@ function mmToPixels(mm: number, dpi: number): number {
  *
  * Strategy:
  * 1. Temporarily resize the preview container to target print pixels
- * 2. Let MapLibre re-render tiles at that resolution
- * 3. Capture the DOM (map canvas + HTML overlays) via html-to-image
- * 4. Restore the container to its original size
+ * 2. Re-fit map bounds at the new resolution so the route fills the frame
+ * 3. Let MapLibre re-render tiles at that resolution
+ * 4. Capture the DOM (map canvas + HTML overlays) via html-to-image
+ * 5. Restore the container to its original size and re-fit bounds
  */
-export async function capturePosterToBlob(
-  element: HTMLElement,
-  map: maplibregl.Map,
-  dimensions: PosterDimensions
-): Promise<Blob> {
+export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
+  const { element, map, dimensions, bounds, padding, bearing } = opts;
   const targetWidth = mmToPixels(dimensions.widthMm, dimensions.dpi);
   const targetHeight = mmToPixels(dimensions.heightMm, dimensions.dpi);
 
@@ -51,8 +60,12 @@ export async function capturePosterToBlob(
     element.style.aspectRatio = 'auto';
     element.style.overflow = 'hidden';
 
-    // Let MapLibre adapt to new size
+    // Let MapLibre adapt to new size and re-fit the route into the larger canvas
     map.resize();
+    map.fitBounds(bboxToMaplibre(bounds, padding), {
+      animate: false,
+      bearing,
+    });
 
     // Wait for all tiles to load at the new resolution
     await new Promise<void>((resolve) => {
@@ -102,7 +115,11 @@ export async function capturePosterToBlob(
     element.style.aspectRatio = origAspectRatio;
     element.style.overflow = origOverflow;
 
-    // Let MapLibre adapt back
+    // Let MapLibre adapt back and restore the route framing for the preview
     map.resize();
+    map.fitBounds(bboxToMaplibre(bounds, padding), {
+      animate: false,
+      bearing,
+    });
   }
 }

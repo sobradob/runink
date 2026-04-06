@@ -5,6 +5,7 @@ import type { Theme } from '@/types/theme';
 import type { PosterConfig, PosterDimensions, MapMarker, MarkerIcon } from '@/types/poster';
 import { POSTER_PRESETS, DEFAULT_LAYERS } from '@/types/poster';
 import { getDefaultTheme } from '@/features/theme/infrastructure/themeRepository';
+import { boundsFromTracks } from '@/shared/geo/bounds';
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
 import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
@@ -224,7 +225,14 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   const renderPoster = useCallback(async (printDimensions?: PosterDimensions): Promise<Blob> => {
     if (USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
       const dims = printDimensions || config.dimensions;
-      return capturePosterToBlob(previewContainerRef.current, mapInstanceRef.current, dims);
+      return capturePosterToBlob({
+        element: previewContainerRef.current,
+        map: mapInstanceRef.current,
+        dimensions: dims,
+        bounds: boundsFromTracks(tracks),
+        padding: config.padding,
+        bearing: config.bearing,
+      });
     }
     // Fallback to old Canvas-based renderer
     const opts = buildRenderOptions();
