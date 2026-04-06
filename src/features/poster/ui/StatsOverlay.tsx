@@ -29,6 +29,7 @@ export function StatsOverlay({
   if (mode === 'individual' && activity) {
     return (
       <div
+        data-stats-overlay
         className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none"
         style={{
           background: `linear-gradient(transparent, ${theme.colors.background}cc, ${theme.colors.background})`,
@@ -87,6 +88,7 @@ export function StatsOverlay({
 
     return (
       <div
+        data-stats-overlay
         className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none"
         style={{
           background: `linear-gradient(transparent, ${theme.colors.background}cc, ${theme.colors.background})`,

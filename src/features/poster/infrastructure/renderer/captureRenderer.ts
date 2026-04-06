@@ -51,6 +51,9 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
   const origAspectRatio = element.style.aspectRatio;
   const origOverflow = element.style.overflow;
 
+  // Record original size before resizing so we can scale the HTML overlay
+  const originalWidth = element.offsetWidth;
+
   try {
     // Resize to print dimensions
     element.style.width = `${renderWidth}px`;
@@ -59,6 +62,16 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
     element.style.maxHeight = 'none';
     element.style.aspectRatio = 'auto';
     element.style.overflow = 'hidden';
+
+    // Scale the StatsOverlay so text/padding match the larger canvas
+    const overlayScale = renderWidth / originalWidth;
+    const overlay = element.querySelector('[data-stats-overlay]') as HTMLElement | null;
+    if (overlay) {
+      overlay.style.transform = `scale(${overlayScale})`;
+      overlay.style.transformOrigin = 'bottom left';
+      overlay.style.width = `${originalWidth}px`;
+      overlay.style.right = 'auto';
+    }
 
     // Let MapLibre adapt to new size and re-fit the route into the larger canvas
     map.resize();
@@ -114,6 +127,14 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
     element.style.maxHeight = origMaxHeight;
     element.style.aspectRatio = origAspectRatio;
     element.style.overflow = origOverflow;
+
+    // Restore overlay scaling
+    if (overlay) {
+      overlay.style.transform = '';
+      overlay.style.transformOrigin = '';
+      overlay.style.width = '';
+      overlay.style.right = '';
+    }
 
     // Let MapLibre adapt back and restore the route framing for the preview
     map.resize();
