@@ -7,11 +7,15 @@ const STRAVA_AUTH_URL = 'https://www.strava.com/oauth/authorize';
 const STRAVA_TOKEN_URL = 'https://www.strava.com/oauth/token';
 const STRAVA_API_BASE = 'https://www.strava.com/api/v3';
 
-const clientId = process.env.STRAVA_CLIENT_ID!;
-const clientSecret = process.env.STRAVA_CLIENT_SECRET!;
-const redirectUri = process.env.STRAVA_REDIRECT_URI!;
+// Read env vars lazily to ensure they're available after DigitalOcean injects them
+const env = () => ({
+  clientId: process.env.STRAVA_CLIENT_ID!,
+  clientSecret: process.env.STRAVA_CLIENT_SECRET!,
+  redirectUri: process.env.STRAVA_REDIRECT_URI!,
+});
 
 export function getAuthorizationUrl(): string {
+  const { clientId, redirectUri } = env();
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -35,6 +39,7 @@ export interface TokenResponse {
 }
 
 export async function exchangeCodeForToken(code: string): Promise<TokenResponse> {
+  const { clientId, clientSecret } = env();
   const res = await fetch(STRAVA_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -59,6 +64,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   refresh_token: string;
   expires_at: number;
 }> {
+  const { clientId, clientSecret } = env();
   const res = await fetch(STRAVA_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
