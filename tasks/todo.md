@@ -2,11 +2,7 @@
 
 ## Bugs
 
-- [ ] **PNG export horizontal lines + UI/export mismatch**
-  - What user sees in the UI preview doesn't match the exported PNG
-  - Partially addressed (dynamic WebGL texture detection, disabled tile fade, double-idle wait)
-  - Needs real-world testing to confirm banding is resolved
-  - File: `src/features/poster/infrastructure/renderer/index.ts`
+- [x] **PNG export doesn't match preview** — Fixed: use pixelRatio scaling instead of container resize
 
 ## UX Improvements
 
@@ -38,3 +34,8 @@
 - [x] Stripe webhook configured
 - [x] Resend API key configured
 - [x] Deployed to DigitalOcean
+- [x] Coming Soon gate on Order Print button
+- [x] Coming Soon gate on Gift Purchase page
+- [x] Fixed DO deploy branch (was `strava-only`, changed to `main`)
+- [x] No-cache headers on index.html to prevent stale deploys
+- [x] Extracted shared `ComingSoon.tsx` (COMING_SOON flag + popup component)

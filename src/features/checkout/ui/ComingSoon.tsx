@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
 /** Flip to false to re-enable the full order/payment flow */
-export const COMING_SOON = true;
+export const COMING_SOON = false;
 
 export function ComingSoonPopup({ onClose }: { onClose: () => void }) {
   useEffect(() => {

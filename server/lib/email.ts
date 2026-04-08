@@ -15,6 +15,7 @@ function getClient(): Resend | null {
 }
 
 const FROM = () => process.env.EMAIL_FROM || 'RunInk <onboarding@resend.dev>';
+const NOTIFY = () => process.env.NOTIFY_EMAIL || '';
 
 export async function sendOrderConfirmation(params: {
   to: string;
@@ -32,6 +33,7 @@ export async function sendOrderConfirmation(params: {
     await client.emails.send({
       from: FROM(),
       to: params.to,
+      ...(NOTIFY() && { bcc: NOTIFY() }),
       subject: `Your RunInk order ${params.orderId} is confirmed`,
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -76,6 +78,7 @@ export async function sendGiftCode(params: {
     await client.emails.send({
       from: FROM(),
       to: params.to,
+      ...(NOTIFY() && { bcc: NOTIFY() }),
       subject: 'Your RunInk Gift Code',
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
@@ -115,6 +118,7 @@ export async function sendShippingConfirmation(params: {
     await client.emails.send({
       from: FROM(),
       to: params.to,
+      ...(NOTIFY() && { bcc: NOTIFY() }),
       subject: `Your RunInk poster is being printed! (${params.orderId})`,
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">

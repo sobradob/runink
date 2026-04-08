@@ -18,6 +18,10 @@ const PORT = parseInt(process.env.PORT || process.env.SERVER_PORT || '8080', 10)
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const DIST_DIR = path.resolve(__dirname, '../dist');
 
+// Trust reverse proxy (DigitalOcean App Platform, nginx, etc.)
+// Required for correct req.protocol (https) and req.ip behind a proxy
+app.set('trust proxy', true);
+
 // Webhooks need raw body — must be before express.json()
 app.use('/api/webhooks', webhooksRouter);
 

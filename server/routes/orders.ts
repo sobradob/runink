@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { createOrder, getOrder, updateOrder } from '../lib/db.js';
 import { createOrderCheckoutSession, getTier } from '../lib/stripe.js';
 import { createPrintOrder, getShippingEstimate } from '../lib/gelato.js';
@@ -9,8 +10,25 @@ import fs from 'fs';
 
 export const ordersRouter = Router();
 
+// Rate limit order creation and shipping — prevents abuse / spam orders
+const orderCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 orders per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many orders, please try again later' },
+});
+
+const shipLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+
 /** Create a new order (direct purchase) */
-ordersRouter.post('/', async (req, res) => {
+ordersRouter.post('/', orderCreateLimiter, async (req, res) => {
   const { tierId, posterConfig } = req.body;
 
   const tier = getTier(tierId);
@@ -140,7 +158,7 @@ ordersRouter.post('/:id/confirm-upload', (req, res) => {
 });
 
 /** Submit shipping address and trigger print fulfillment */
-ordersRouter.post('/:id/ship', async (req, res) => {
+ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
   const order = getOrder(req.params.id);
   if (!order) {
     return res.status(404).json({ error: 'Order not found' });
