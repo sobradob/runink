@@ -15,6 +15,7 @@ const COOKIE_OPTIONS = {
 // Redirect to Strava OAuth
 authRouter.get('/strava', (_req, res) => {
   const url = getAuthorizationUrl();
+  console.log(`Strava auth URL: ${url}`);
   res.redirect(url);
 });
 

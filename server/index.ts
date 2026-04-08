@@ -66,7 +66,5 @@ if (IS_PRODUCTION || fs.existsSync(DIST_DIR)) {
 
 app.listen(PORT, () => {
   console.log(`RunInk server running on http://localhost:${PORT}`);
-  if (!IS_PRODUCTION) {
-    console.log(`Strava OAuth redirect: ${process.env.STRAVA_REDIRECT_URI}`);
-  }
+  console.log(`Strava OAuth redirect: ${process.env.STRAVA_REDIRECT_URI}`);
 });
