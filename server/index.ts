@@ -10,6 +10,7 @@ import { giftRouter } from './routes/gift.js';
 import { ordersRouter } from './routes/orders.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { adminRouter } from './routes/admin.js';
+import { initDb } from './lib/db.js';
 import { LOCAL_DIR } from './lib/storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,6 +67,12 @@ if (IS_PRODUCTION || fs.existsSync(DIST_DIR)) {
   console.log(`Serving frontend from ${DIST_DIR}`);
 }
 
+// Initialize database tables before accepting requests
+initDb().catch(err => {
+  console.error('FATAL: Database initialization failed:', err);
+  process.exit(1);
+});
+
 app.listen(PORT, () => {
   console.log(`RunInk server running on http://localhost:${PORT}`);
   console.log(`Strava OAuth redirect: ${process.env.STRAVA_REDIRECT_URI}`);
@@ -78,6 +85,7 @@ app.listen(PORT, () => {
     EMAIL_FROM: process.env.EMAIL_FROM || '(not set)',
     NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || '(not set)',
     ADMIN_SECRET: !!process.env.ADMIN_SECRET,
+    DATABASE_URL: !!process.env.DATABASE_URL,
   };
   console.log('Config check:', JSON.stringify(checks));
   if (checks.EMAIL_FROM.includes('resend.dev')) {

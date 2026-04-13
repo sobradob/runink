@@ -1,73 +1,59 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import postgres from 'postgres';
 import crypto from 'crypto';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// DB_PATH env var allows pointing to a persistent mount in production
-const DB_DIR = process.env.DB_PATH || path.resolve(__dirname, '../../data');
-fs.mkdirSync(DB_DIR, { recursive: true });
-const DB_PATH = path.join(DB_DIR, 'runink.db');
+const sql = postgres(process.env.DATABASE_URL || 'postgres://localhost:5432/runink');
 
-const db = new Database(DB_PATH);
+// Create tables on startup
+export async function initDb() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS gift_codes (
+      id SERIAL PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      tier TEXT NOT NULL,
+      purchaser_email TEXT,
+      recipient_name TEXT,
+      recipient_email TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      stripe_session_id TEXT,
+      stripe_payment_intent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      redeemed_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ
+    )
+  `;
 
-// Enable WAL mode for better concurrent access
-db.pragma('journal_mode = WAL');
+  await sql`
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      order_id TEXT UNIQUE NOT NULL,
+      gift_code TEXT REFERENCES gift_codes(code),
+      type TEXT NOT NULL DEFAULT 'direct',
+      tier TEXT NOT NULL,
+      poster_config TEXT,
+      png_url TEXT,
+      gelato_order_id TEXT,
+      stripe_session_id TEXT,
+      stripe_payment_intent TEXT,
+      shipping_name TEXT,
+      shipping_address_1 TEXT,
+      shipping_address_2 TEXT,
+      shipping_city TEXT,
+      shipping_state TEXT,
+      shipping_country TEXT,
+      shipping_zip TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS gift_codes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT UNIQUE NOT NULL,
-    tier TEXT NOT NULL,
-    purchaser_email TEXT,
-    recipient_name TEXT,
-    recipient_email TEXT,
-    status TEXT NOT NULL DEFAULT 'active',
-    stripe_session_id TEXT,
-    stripe_payment_intent TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    redeemed_at TEXT,
-    expires_at TEXT
-  );
+  await sql`CREATE INDEX IF NOT EXISTS idx_gift_codes_code ON gift_codes(code)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_gift_codes_status ON gift_codes(status)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_orders_gift_code ON orders(gift_code)`;
 
-  CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    order_id TEXT UNIQUE NOT NULL,
-    gift_code TEXT REFERENCES gift_codes(code),
-    type TEXT NOT NULL DEFAULT 'direct',
-    tier TEXT NOT NULL,
-    poster_config TEXT,
-    png_url TEXT,
-    gelato_order_id TEXT,
-    stripe_session_id TEXT,
-    stripe_payment_intent TEXT,
-    shipping_name TEXT,
-    shipping_address_1 TEXT,
-    shipping_address_2 TEXT,
-    shipping_city TEXT,
-    shipping_state TEXT,
-    shipping_country TEXT,
-    shipping_zip TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_gift_codes_code ON gift_codes(code);
-  CREATE INDEX IF NOT EXISTS idx_gift_codes_status ON gift_codes(status);
-  CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id);
-  CREATE INDEX IF NOT EXISTS idx_orders_gift_code ON orders(gift_code);
-`);
-
-// Migration: rename printful_order_id → gelato_order_id (legacy from Printful integration)
-try {
-  const cols = db.pragma('table_info(orders)') as { name: string }[];
-  if (cols.some(c => c.name === 'printful_order_id')) {
-    db.exec('ALTER TABLE orders RENAME COLUMN printful_order_id TO gelato_order_id');
-  }
-} catch { /* column already renamed or table doesn't exist yet */ }
+  console.log('[db] Tables initialized');
+}
 
 // === Gift Codes ===
 
@@ -93,42 +79,48 @@ export interface GiftCode {
   redeemed_at: string | null;
 }
 
-export function createGiftCode(params: {
+export async function createGiftCode(params: {
   tier: string;
   purchaserEmail?: string;
   recipientName?: string;
   recipientEmail?: string;
   stripeSessionId?: string;
   stripePaymentIntent?: string;
-}): GiftCode {
+}): Promise<GiftCode> {
   const code = generateGiftCode();
 
-  db.prepare(`
+  await sql`
     INSERT INTO gift_codes (code, tier, purchaser_email, recipient_name, recipient_email, stripe_session_id, stripe_payment_intent, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '+1 year'))
-  `).run(
-    code,
-    params.tier,
-    params.purchaserEmail || null,
-    params.recipientName || null,
-    params.recipientEmail || null,
-    params.stripeSessionId || null,
-    params.stripePaymentIntent || null,
-  );
+    VALUES (${code}, ${params.tier}, ${params.purchaserEmail || null}, ${params.recipientName || null}, ${params.recipientEmail || null}, ${params.stripeSessionId || null}, ${params.stripePaymentIntent || null}, NOW() + INTERVAL '1 year')
+  `;
 
-  return getGiftCode(code)!;
+  return (await getGiftCode(code))!;
 }
 
-export function getGiftCode(code: string): GiftCode | null {
-  return db.prepare('SELECT * FROM gift_codes WHERE code = ?').get(code) as GiftCode | null;
+export async function createGiftCodeWithCode(params: {
+  code: string;
+  tier: string;
+  purchaserEmail?: string;
+  recipientName?: string;
+}): Promise<GiftCode> {
+  await sql`
+    INSERT INTO gift_codes (code, tier, purchaser_email, recipient_name, status, expires_at)
+    VALUES (${params.code}, ${params.tier}, ${params.purchaserEmail || null}, ${params.recipientName || null}, 'active', NOW() + INTERVAL '1 year')
+  `;
+  return (await getGiftCode(params.code))!;
 }
 
-export function redeemGiftCode(code: string): boolean {
-  const result = db.prepare(`
-    UPDATE gift_codes SET status = 'redeemed', redeemed_at = datetime('now')
-    WHERE code = ? AND status = 'active'
-  `).run(code);
-  return result.changes > 0;
+export async function getGiftCode(code: string): Promise<GiftCode | null> {
+  const rows = await sql<GiftCode[]>`SELECT * FROM gift_codes WHERE code = ${code}`;
+  return rows[0] || null;
+}
+
+export async function redeemGiftCode(code: string): Promise<boolean> {
+  const result = await sql`
+    UPDATE gift_codes SET status = 'redeemed', redeemed_at = NOW()
+    WHERE code = ${code} AND status = 'active'
+  `;
+  return result.count > 0;
 }
 
 // === Orders ===
@@ -153,35 +145,29 @@ function generateOrderId(): string {
   return 'ORD-' + crypto.randomUUID().slice(0, 8).toUpperCase();
 }
 
-export function createOrder(params: {
+export async function createOrder(params: {
   giftCode?: string;
   type: 'direct' | 'gift';
   tier: string;
   posterConfig?: string;
   stripeSessionId?: string;
-}): Order {
+}): Promise<Order> {
   const orderId = generateOrderId();
 
-  db.prepare(`
+  await sql`
     INSERT INTO orders (order_id, gift_code, type, tier, poster_config, stripe_session_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    orderId,
-    params.giftCode || null,
-    params.type,
-    params.tier,
-    params.posterConfig || null,
-    params.stripeSessionId || null,
-  );
+    VALUES (${orderId}, ${params.giftCode || null}, ${params.type}, ${params.tier}, ${params.posterConfig || null}, ${params.stripeSessionId || null})
+  `;
 
-  return getOrder(orderId)!;
+  return (await getOrder(orderId))!;
 }
 
-export function getOrder(orderId: string): Order | null {
-  return db.prepare('SELECT * FROM orders WHERE order_id = ?').get(orderId) as Order | null;
+export async function getOrder(orderId: string): Promise<Order | null> {
+  const rows = await sql<Order[]>`SELECT * FROM orders WHERE order_id = ${orderId}`;
+  return rows[0] || null;
 }
 
-export function updateOrder(orderId: string, updates: Partial<{
+export async function updateOrder(orderId: string, updates: Partial<{
   png_url: string;
   gelato_order_id: string;
   shipping_name: string;
@@ -193,19 +179,26 @@ export function updateOrder(orderId: string, updates: Partial<{
   shipping_zip: string;
   status: string;
   stripe_payment_intent: string;
-}>): boolean {
+}>): Promise<boolean> {
   const fields = Object.entries(updates).filter(([_, v]) => v !== undefined);
   if (fields.length === 0) return false;
 
-  const setClause = fields.map(([k]) => `${k} = ?`).join(', ');
-  const values = fields.map(([_, v]) => v);
+  // Build dynamic update using postgres.js helpers
+  const setObj: Record<string, string | null> = {};
+  for (const [k, v] of fields) {
+    setObj[k] = v as string;
+  }
+  setObj.updated_at = new Date().toISOString();
 
-  const result = db.prepare(`
-    UPDATE orders SET ${setClause}, updated_at = datetime('now')
-    WHERE order_id = ?
-  `).run(...values, orderId);
+  const result = await sql`
+    UPDATE orders SET ${sql(setObj, ...Object.keys(setObj))}
+    WHERE order_id = ${orderId}
+  `;
 
-  return result.changes > 0;
+  return result.count > 0;
 }
 
-export default db;
+/** Raw SQL access for admin queries */
+export { sql };
+
+export default sql;

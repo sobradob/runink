@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { createGiftCode, getGiftCode, getOrder } from '../lib/db.js';
+import { createGiftCode, createGiftCodeWithCode, getGiftCode, getOrder } from '../lib/db.js';
 import { getTier } from '../lib/stripe.js';
-import { sendGiftCode, sendOwnerPurchaseNotification } from '../lib/email.js';
-import db from '../lib/db.js';
+import { sendGiftCode } from '../lib/email.js';
+import { sql } from '../lib/db.js';
 
 export const adminRouter = Router();
 
@@ -25,13 +25,13 @@ adminRouter.use((req, res, next) => {
 });
 
 /** List all gift codes */
-adminRouter.get('/gift-codes', (_req, res) => {
-  const codes = db.prepare('SELECT * FROM gift_codes ORDER BY created_at DESC LIMIT 50').all();
+adminRouter.get('/gift-codes', async (_req, res) => {
+  const codes = await sql`SELECT * FROM gift_codes ORDER BY created_at DESC LIMIT 50`;
   res.json({ codes });
 });
 
 /** Create a gift code manually (for customer rescue) */
-adminRouter.post('/gift-codes', (req, res) => {
+adminRouter.post('/gift-codes', async (req, res) => {
   const { tier, purchaserEmail, recipientName, code } = req.body;
 
   if (!tier) {
@@ -45,23 +45,22 @@ adminRouter.post('/gift-codes', (req, res) => {
 
   // If a specific code is requested (re-creating a lost code), check it doesn't exist
   if (code) {
-    const existing = getGiftCode(code);
+    const existing = await getGiftCode(code);
     if (existing) {
       return res.status(409).json({ error: 'Gift code already exists', gift: existing });
     }
 
-    // Insert with specific code
-    db.prepare(`
-      INSERT INTO gift_codes (code, tier, purchaser_email, recipient_name, status, expires_at)
-      VALUES (?, ?, ?, ?, 'active', datetime('now', '+1 year'))
-    `).run(code, tier, purchaserEmail || null, recipientName || null);
-
-    const gift = getGiftCode(code);
+    const gift = await createGiftCodeWithCode({
+      code,
+      tier,
+      purchaserEmail,
+      recipientName,
+    });
     return res.json({ gift, message: `Gift code ${code} created` });
   }
 
   // Otherwise create with auto-generated code
-  const gift = createGiftCode({
+  const gift = await createGiftCode({
     tier,
     purchaserEmail,
     recipientName,
@@ -73,7 +72,7 @@ adminRouter.post('/gift-codes', (req, res) => {
 /** Resend a gift code email */
 adminRouter.post('/gift-codes/:code/resend', async (req, res) => {
   const code = req.params.code.toUpperCase();
-  const gift = getGiftCode(code);
+  const gift = await getGiftCode(code);
 
   if (!gift) {
     return res.status(404).json({ error: 'Gift code not found' });
@@ -99,14 +98,14 @@ adminRouter.post('/gift-codes/:code/resend', async (req, res) => {
 });
 
 /** List all orders */
-adminRouter.get('/orders', (_req, res) => {
-  const orders = db.prepare('SELECT * FROM orders ORDER BY created_at DESC LIMIT 50').all();
+adminRouter.get('/orders', async (_req, res) => {
+  const orders = await sql`SELECT * FROM orders ORDER BY created_at DESC LIMIT 50`;
   res.json({ orders });
 });
 
 /** Get a specific order */
-adminRouter.get('/orders/:id', (req, res) => {
-  const order = getOrder(req.params.id);
+adminRouter.get('/orders/:id', async (req, res) => {
+  const order = await getOrder(req.params.id);
   if (!order) {
     return res.status(404).json({ error: 'Order not found' });
   }

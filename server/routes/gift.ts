@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createGiftCode, getGiftCode, redeemGiftCode } from '../lib/db.js';
+import { getGiftCode, redeemGiftCode } from '../lib/db.js';
 import { createGiftCheckoutSession, GIFT_TIERS, getTier } from '../lib/stripe.js';
 
 export const giftRouter = Router();
@@ -43,9 +43,9 @@ giftRouter.post('/purchase', async (req, res) => {
 });
 
 /** Validate a gift code */
-giftRouter.get('/:code', (req, res) => {
+giftRouter.get('/:code', async (req, res) => {
   const code = req.params.code.toUpperCase();
-  const gift = getGiftCode(code);
+  const gift = await getGiftCode(code);
 
   if (!gift) {
     return res.status(404).json({ error: 'Gift code not found' });
@@ -73,9 +73,9 @@ giftRouter.get('/:code', (req, res) => {
 });
 
 /** Redeem a gift code */
-giftRouter.post('/:code/redeem', (req, res) => {
+giftRouter.post('/:code/redeem', async (req, res) => {
   const code = req.params.code.toUpperCase();
-  const gift = getGiftCode(code);
+  const gift = await getGiftCode(code);
 
   if (!gift) {
     return res.status(404).json({ error: 'Gift code not found' });
@@ -85,7 +85,7 @@ giftRouter.post('/:code/redeem', (req, res) => {
     return res.status(410).json({ error: `Gift code is ${gift.status}` });
   }
 
-  const success = redeemGiftCode(code);
+  const success = await redeemGiftCode(code);
   if (!success) {
     return res.status(500).json({ error: 'Failed to redeem gift code' });
   }

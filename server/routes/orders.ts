@@ -37,7 +37,7 @@ ordersRouter.post('/', orderCreateLimiter, async (req, res) => {
   }
 
   try {
-    const order = createOrder({
+    const order = await createOrder({
       type: 'direct',
       tier: tierId,
       posterConfig: posterConfig ? JSON.stringify(posterConfig) : undefined,
@@ -52,7 +52,7 @@ ordersRouter.post('/', orderCreateLimiter, async (req, res) => {
       cancelUrl: `${baseUrl}/order/${order.order_id}`,
     });
 
-    updateOrder(order.order_id, { stripe_session_id: sessionId } as any);
+    await updateOrder(order.order_id, { stripe_session_id: sessionId } as any);
 
     res.json({ orderId: order.order_id, checkoutUrl: url });
   } catch (err: any) {
@@ -62,7 +62,7 @@ ordersRouter.post('/', orderCreateLimiter, async (req, res) => {
 });
 
 /** Create an order from a redeemed gift code (no payment needed) */
-ordersRouter.post('/from-gift', (req, res) => {
+ordersRouter.post('/from-gift', async (req, res) => {
   const { giftCode, posterConfig } = req.body;
 
   if (!giftCode) {
@@ -70,7 +70,7 @@ ordersRouter.post('/from-gift', (req, res) => {
   }
 
   try {
-    const order = createOrder({
+    const order = await createOrder({
       type: 'gift',
       tier: req.body.tierId || 'a3-poster', // Default tier from gift
       giftCode,
@@ -85,8 +85,8 @@ ordersRouter.post('/from-gift', (req, res) => {
 });
 
 /** Get order status */
-ordersRouter.get('/:id', (req, res) => {
-  const order = getOrder(req.params.id);
+ordersRouter.get('/:id', async (req, res) => {
+  const order = await getOrder(req.params.id);
   if (!order) {
     return res.status(404).json({ error: 'Order not found' });
   }
@@ -105,7 +105,7 @@ ordersRouter.get('/:id', (req, res) => {
 
 /** Get a pre-signed upload URL for the poster PNG */
 ordersRouter.post('/:id/upload-url', async (req, res) => {
-  const order = getOrder(req.params.id);
+  const order = await getOrder(req.params.id);
   if (!order) {
     return res.status(404).json({ error: 'Order not found' });
   }
@@ -122,7 +122,7 @@ ordersRouter.post('/:id/upload-url', async (req, res) => {
 });
 
 /** Local file upload endpoint (dev fallback when R2 not configured) */
-ordersRouter.put('/upload/*key', express.raw({ type: 'image/png', limit: '50mb' }), (req, res) => {
+ordersRouter.put('/upload/*key', express.raw({ type: 'image/png', limit: '50mb' }), async (req, res) => {
   // Express 5 returns wildcard params as arrays
   const rawKey = (req.params as any).key;
   const key = Array.isArray(rawKey) ? rawKey.join('/') : rawKey;
@@ -137,29 +137,29 @@ ordersRouter.put('/upload/*key', express.raw({ type: 'image/png', limit: '50mb' 
   // Store png_url in the order record if the key matches posters/{orderId}.png
   const match = key.match(/^posters\/(ORD-[A-Z0-9]+)\.png$/);
   if (match) {
-    updateOrder(match[1], { png_url: url });
+    await updateOrder(match[1], { png_url: url });
   }
 
   res.json({ url });
 });
 
 /** Confirm upload completed (used after R2 upload to store the public URL) */
-ordersRouter.post('/:id/confirm-upload', (req, res) => {
-  const order = getOrder(req.params.id);
+ordersRouter.post('/:id/confirm-upload', async (req, res) => {
+  const order = await getOrder(req.params.id);
   if (!order) {
     return res.status(404).json({ error: 'Order not found' });
   }
 
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const pngUrl = getPublicUrl(`posters/${order.order_id}.png`, baseUrl);
-  updateOrder(order.order_id, { png_url: pngUrl });
+  await updateOrder(order.order_id, { png_url: pngUrl });
 
   res.json({ pngUrl });
 });
 
 /** Submit shipping address and trigger print fulfillment */
 ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
-  const order = getOrder(req.params.id);
+  const order = await getOrder(req.params.id);
   if (!order) {
     return res.status(404).json({ error: 'Order not found' });
   }
@@ -176,7 +176,7 @@ ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
   }
 
   // Update shipping address
-  updateOrder(order.order_id, {
+  await updateOrder(order.order_id, {
     shipping_name: name,
     shipping_address_1: address1,
     shipping_address_2: address2,
@@ -200,7 +200,7 @@ ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
         shipping: { name, email, address1, address2, city, stateCode, countryCode, zip },
       });
 
-      updateOrder(order.order_id, {
+      await updateOrder(order.order_id, {
         gelato_order_id: gelatoOrder.id,
         status: 'fulfilling',
       });
@@ -212,7 +212,7 @@ ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
           to: email,
           orderId: order.order_id,
           estimatedDelivery: estimate.estimatedDays,
-        }).catch(() => {}); // fire-and-forget
+        }).catch(err => console.error('[orders] Shipping email error:', err));
       }
 
       res.json({
@@ -222,12 +222,12 @@ ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
       });
     } catch (err: any) {
       console.error('Gelato order failed:', err);
-      updateOrder(order.order_id, { status: 'fulfillment-error' });
+      await updateOrder(order.order_id, { status: 'fulfillment-error' });
       res.status(500).json({ error: 'Print fulfillment failed. We will process your order manually.' });
     }
   } else {
     // No Gelato configured — mark as pending manual fulfillment
-    updateOrder(order.order_id, { status: 'pending-fulfillment' });
+    await updateOrder(order.order_id, { status: 'pending-fulfillment' });
     res.json({
       orderId: order.order_id,
       status: 'pending-fulfillment',

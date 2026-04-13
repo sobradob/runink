@@ -14,7 +14,7 @@ export const webhooksRouter = Router();
 webhooksRouter.post(
   '/stripe',
   express.raw({ type: 'application/json' }),
-  (req, res) => {
+  async (req, res) => {
     const signature = req.headers['stripe-signature'] as string;
 
     if (!signature) {
@@ -39,7 +39,7 @@ webhooksRouter.post(
         if (metadata.type === 'gift') {
           try {
             // Gift code purchase completed — generate the code
-            const gift = createGiftCode({
+            const gift = await createGiftCode({
               tier: metadata.tier_id,
               purchaserEmail: customerEmail,
               recipientName: metadata.recipient_name,
@@ -80,14 +80,14 @@ webhooksRouter.post(
         if (metadata.type === 'order') {
           try {
             // Direct order payment completed
-            updateOrder(metadata.order_id, {
+            await updateOrder(metadata.order_id, {
               status: 'paid',
               stripe_payment_intent: session.payment_intent,
             });
 
             console.log(`Order paid: ${metadata.order_id}`);
 
-            const order = getOrder(metadata.order_id);
+            const order = await getOrder(metadata.order_id);
             const tier = order ? getTier(order.tier) : null;
             const tierName = tier?.name || order?.tier || 'Poster';
 
@@ -121,7 +121,7 @@ webhooksRouter.post(
         const metadata = session.metadata || {};
 
         if (metadata.type === 'order' && metadata.order_id) {
-          updateOrder(metadata.order_id, { status: 'payment-expired' });
+          await updateOrder(metadata.order_id, { status: 'payment-expired' });
         }
         break;
       }
