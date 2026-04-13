@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { createOrder, getOrder, updateOrder } from '../lib/db.js';
+import { createOrder, getOrder, updateOrder, getGiftCode, redeemGiftCode } from '../lib/db.js';
 import { createOrderCheckoutSession, getTier } from '../lib/stripe.js';
 import { createPrintOrder, getShippingEstimate } from '../lib/gelato.js';
 import { getUploadUrl, getPublicUrl, storeLocal, getLocalPath } from '../lib/storage.js';
@@ -69,10 +69,28 @@ ordersRouter.post('/from-gift', async (req, res) => {
     return res.status(400).json({ error: 'Gift code required' });
   }
 
+  // Validate the gift code is still active
+  const gift = await getGiftCode(giftCode);
+  if (!gift) {
+    return res.status(404).json({ error: 'Gift code not found' });
+  }
+  if (gift.status === 'redeemed') {
+    return res.status(410).json({ error: 'This gift code has already been used' });
+  }
+  if (gift.status === 'expired') {
+    return res.status(410).json({ error: 'This gift code has expired' });
+  }
+
   try {
+    // Redeem the code atomically with order creation
+    const redeemed = await redeemGiftCode(giftCode);
+    if (!redeemed) {
+      return res.status(410).json({ error: 'Gift code could not be redeemed' });
+    }
+
     const order = await createOrder({
       type: 'gift',
-      tier: req.body.tierId || 'a3-poster', // Default tier from gift
+      tier: req.body.tierId || gift.tier, // Use the tier from the gift code
       giftCode,
       posterConfig: posterConfig ? JSON.stringify(posterConfig) : undefined,
     });

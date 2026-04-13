@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { validateGiftCode, redeemGiftCode, type GiftCodeInfo } from '../services/checkoutApi';
+import { validateGiftCode, type GiftCodeInfo } from '../services/checkoutApi';
 
 interface RedeemPageProps {
   code: string;
@@ -10,8 +10,6 @@ export function RedeemPage({ code, onRedeemed }: RedeemPageProps) {
   const [gift, setGift] = useState<GiftCodeInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [redeeming, setRedeeming] = useState(false);
-
   useEffect(() => {
     validateGiftCode(code)
       .then(setGift)
@@ -19,15 +17,10 @@ export function RedeemPage({ code, onRedeemed }: RedeemPageProps) {
       .finally(() => setLoading(false));
   }, [code]);
 
-  const handleRedeem = async () => {
-    setRedeeming(true);
-    setError('');
-    try {
-      const { tier } = await redeemGiftCode(code);
-      onRedeemed(tier, code);
-    } catch (e: any) {
-      setError(e.message);
-      setRedeeming(false);
+  const handleStartDesigning = () => {
+    if (gift) {
+      // Don't redeem yet — redemption happens when the order is created
+      onRedeemed(gift.tier, code);
     }
   };
 
@@ -88,11 +81,10 @@ export function RedeemPage({ code, onRedeemed }: RedeemPageProps) {
               </p>
 
               <button
-                onClick={handleRedeem}
-                disabled={redeeming}
-                className="w-full py-4 rounded-xl bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 disabled:opacity-50 transition-all"
+                onClick={handleStartDesigning}
+                className="w-full py-4 rounded-xl bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 transition-all"
               >
-                {redeeming ? 'Redeeming...' : 'Start Designing My Poster'}
+                Start Designing My Poster
               </button>
             </div>
           )}
