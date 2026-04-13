@@ -67,4 +67,20 @@ if (IS_PRODUCTION || fs.existsSync(DIST_DIR)) {
 app.listen(PORT, () => {
   console.log(`RunInk server running on http://localhost:${PORT}`);
   console.log(`Strava OAuth redirect: ${process.env.STRAVA_REDIRECT_URI}`);
+
+  // Health checks — surface misconfiguration early
+  const checks = {
+    STRIPE_WEBHOOK_SECRET: !!process.env.STRIPE_WEBHOOK_SECRET,
+    RESEND_API_KEY: !!process.env.RESEND_API_KEY,
+    GELATO_API_KEY: !!process.env.GELATO_API_KEY,
+    EMAIL_FROM: process.env.EMAIL_FROM || '(not set)',
+    NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || '(not set)',
+  };
+  console.log('Config check:', JSON.stringify(checks));
+  if (checks.EMAIL_FROM.includes('resend.dev')) {
+    console.warn('WARNING: EMAIL_FROM uses resend.dev test domain — emails to external addresses will fail silently');
+  }
+  if (!checks.RESEND_API_KEY) {
+    console.warn('WARNING: RESEND_API_KEY not set — all emails will be skipped');
+  }
 });

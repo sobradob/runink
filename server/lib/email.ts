@@ -30,7 +30,7 @@ export async function sendOrderConfirmation(params: {
   }
 
   try {
-    await client.emails.send({
+    const { data, error } = await client.emails.send({
       from: FROM(),
       to: params.to,
       ...(NOTIFY() && { bcc: NOTIFY() }),
@@ -49,7 +49,11 @@ export async function sendOrderConfirmation(params: {
         </div>
       `,
     });
-    console.log(`[email] Order confirmation sent to ${params.to}`);
+    if (error) {
+      console.error('[email] Order confirmation failed:', error);
+      return false;
+    }
+    console.log(`[email] Order confirmation sent to ${params.to}, id: ${data.id}`);
     return true;
   } catch (err) {
     console.error('[email] Failed to send order confirmation:', err);
@@ -75,7 +79,7 @@ export async function sendGiftCode(params: {
       ? `for <strong>${params.recipientName}</strong>`
       : '';
 
-    await client.emails.send({
+    const { data, error } = await client.emails.send({
       from: FROM(),
       to: params.to,
       ...(NOTIFY() && { bcc: NOTIFY() }),
@@ -95,7 +99,11 @@ export async function sendGiftCode(params: {
         </div>
       `,
     });
-    console.log(`[email] Gift code sent to ${params.to}`);
+    if (error) {
+      console.error('[email] Gift code email failed:', error);
+      return false;
+    }
+    console.log(`[email] Gift code sent to ${params.to}, id: ${data.id}`);
     return true;
   } catch (err) {
     console.error('[email] Failed to send gift code:', err);
@@ -115,7 +123,7 @@ export async function sendShippingConfirmation(params: {
   }
 
   try {
-    await client.emails.send({
+    const { data, error } = await client.emails.send({
       from: FROM(),
       to: params.to,
       ...(NOTIFY() && { bcc: NOTIFY() }),
@@ -130,10 +138,70 @@ export async function sendShippingConfirmation(params: {
         </div>
       `,
     });
-    console.log(`[email] Shipping confirmation sent to ${params.to}`);
+    if (error) {
+      console.error('[email] Shipping confirmation failed:', error);
+      return false;
+    }
+    console.log(`[email] Shipping confirmation sent to ${params.to}, id: ${data.id}`);
     return true;
   } catch (err) {
     console.error('[email] Failed to send shipping confirmation:', err);
+    return false;
+  }
+}
+
+/**
+ * Send a purchase notification to the site owner (NOTIFY_EMAIL).
+ * This is a separate API call from customer emails so it can't fail alongside them.
+ */
+export async function sendOwnerPurchaseNotification(params: {
+  type: 'gift' | 'order';
+  customerEmail: string;
+  tierName: string;
+  amount?: string;
+  giftCode?: string;
+}): Promise<boolean> {
+  const notifyEmail = NOTIFY();
+  if (!notifyEmail) {
+    console.log('[email] No NOTIFY_EMAIL configured, skipping owner notification');
+    return false;
+  }
+
+  const client = getClient();
+  if (!client) {
+    console.warn('[email] RESEND_API_KEY not set — owner notification skipped');
+    return false;
+  }
+
+  const lines = [
+    `<strong>Type:</strong> ${params.type}`,
+    `<strong>Customer:</strong> ${params.customerEmail}`,
+    `<strong>Product:</strong> ${params.tierName}`,
+  ];
+  if (params.amount) lines.push(`<strong>Amount:</strong> ${params.amount}`);
+  if (params.giftCode) lines.push(`<strong>Gift Code:</strong> ${params.giftCode}`);
+  lines.push(`<strong>Time:</strong> ${new Date().toISOString()}`);
+
+  try {
+    const { data, error } = await client.emails.send({
+      from: FROM(),
+      to: notifyEmail,
+      subject: `New RunInk ${params.type === 'gift' ? 'gift' : 'order'} purchase — ${params.tierName}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px;">
+          <h2>New Purchase</h2>
+          <p>${lines.join('<br/>')}</p>
+        </div>
+      `,
+    });
+    if (error) {
+      console.error('[email] Owner notification failed:', error);
+      return false;
+    }
+    console.log(`[email] Owner notification sent, id: ${data.id}`);
+    return true;
+  } catch (err) {
+    console.error('[email] Owner notification error:', err);
     return false;
   }
 }
