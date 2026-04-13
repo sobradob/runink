@@ -134,11 +134,18 @@ export interface StravaActivity {
   };
 }
 
+// Activity types that produce meaningful GPS tracks for poster rendering
+const GPS_ACTIVITY_TYPES = new Set([
+  'Run', 'VirtualRun', 'TrailRun',
+  'Walk', 'Hike',
+  'Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide', 'EBikeRide',
+]);
+
 /**
- * Fetch all running activities from Strava, paginating through all results.
+ * Fetch all GPS-based activities from Strava, paginating through all results.
  * Returns activities with their summary_polyline for GPS track rendering.
  */
-export async function fetchAllRunActivities(accessToken: string): Promise<StravaActivity[]> {
+export async function fetchAllGpsActivities(accessToken: string): Promise<StravaActivity[]> {
   const allActivities: StravaActivity[] = [];
   let page = 1;
   const perPage = 200; // Max allowed by Strava
@@ -161,13 +168,13 @@ export async function fetchAllRunActivities(accessToken: string): Promise<Strava
     const activities: StravaActivity[] = await res.json();
     if (activities.length === 0) break;
 
-    // Filter to running activities only
-    const runs = activities.filter(
-      (a) => a.type === 'Run' || a.sport_type === 'Run'
+    // Filter to GPS-based activity types
+    const gpsActivities = activities.filter(
+      (a) => GPS_ACTIVITY_TYPES.has(a.type) || GPS_ACTIVITY_TYPES.has(a.sport_type)
     );
-    allActivities.push(...runs);
+    allActivities.push(...gpsActivities);
 
-    console.log(`  Strava page ${page}: ${activities.length} activities, ${runs.length} runs`);
+    console.log(`  Strava page ${page}: ${activities.length} total, ${gpsActivities.length} GPS activities`);
 
     if (activities.length < perPage) break; // Last page
     page++;

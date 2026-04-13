@@ -27,6 +27,26 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
   const [radiusKm, setRadiusKm] = useState(20);
   const [geocoding, setGeocoding] = useState(false);
 
+  // Activity type filter
+  const [sportTypeFilter, setSportTypeFilter] = useState('Run');
+
+  // Compute activity type counts for filter pills
+  const sportTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const a of activities) {
+      if (!a.hasTrack) continue;
+      // Normalize similar types into display groups
+      const type = a.sportType || 'Run';
+      const group =
+        type.includes('Run') || type === 'TrailRun' || type === 'VirtualRun' ? 'Run' :
+        type === 'Walk' || type === 'Hike' ? 'Walk/Hike' :
+        type.includes('Ride') || type.includes('ride') || type.includes('Bike') ? 'Ride' :
+        type;
+      counts.set(group, (counts.get(group) || 0) + 1);
+    }
+    return counts;
+  }, [activities]);
+
   const locations = useMemo(() => getUniqueLocations(activities), [activities]);
   const suggestedRegions = useMemo(() => suggestRegions(activities), [activities]);
 
@@ -40,8 +60,16 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
         dateTo: dateTo || undefined,
       })
         .filter((a) => a.hasTrack)
+        .filter((a) => {
+          if (sportTypeFilter === 'All') return true;
+          const type = a.sportType || 'Run';
+          if (sportTypeFilter === 'Run') return type.includes('Run') || type === 'TrailRun' || type === 'VirtualRun';
+          if (sportTypeFilter === 'Walk/Hike') return type === 'Walk' || type === 'Hike';
+          if (sportTypeFilter === 'Ride') return type.includes('Ride') || type.includes('ride') || type.includes('Bike');
+          return type === sportTypeFilter;
+        })
         .sort((a, b) => b.timestamp - a.timestamp),
-    [activities, search, location, region, radiusKm, dateFrom, dateTo, filterMode]
+    [activities, search, location, region, radiusKm, dateFrom, dateTo, filterMode, sportTypeFilter]
   );
 
   const handleGeocode = useCallback(async () => {
@@ -103,6 +131,31 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
           onChange={(e) => setSearch(e.target.value)}
           className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
         />
+
+        {/* Activity type pills */}
+        {sportTypeCounts.size > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {['Run', 'Walk/Hike', 'Ride', 'All'].map((type) => {
+              const count = type === 'All'
+                ? [...sportTypeCounts.values()].reduce((a, b) => a + b, 0)
+                : sportTypeCounts.get(type) || 0;
+              if (type !== 'All' && count === 0) return null;
+              return (
+                <button
+                  key={type}
+                  onClick={() => setSportTypeFilter(type)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    sportTypeFilter === type
+                      ? 'border-white/40 bg-white/15 text-white'
+                      : 'border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
+                  }`}
+                >
+                  {type} {count > 0 && `(${count})`}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Filter mode tabs */}
         <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">

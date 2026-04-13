@@ -9,6 +9,7 @@ import { RedeemPage } from '@/features/checkout/ui/RedeemPage';
 import { PrivacyPolicy } from '@/features/legal/PrivacyPolicy';
 import { OrderSuccessPage } from '@/features/checkout/ui/OrderSuccessPage';
 import { OrderStatusPage } from '@/features/checkout/ui/OrderStatusPage';
+import { getGiftContext, persistGiftContext, type GiftContext } from '@/features/checkout/services/checkoutApi';
 
 type View =
   | { type: 'browse' }
@@ -48,6 +49,7 @@ export default function App() {
   } = useActivityIndex();
 
   const [view, setView] = useState<View>(getInitialView);
+  const [giftContext, setGiftContext] = useState<GiftContext | null>(() => getGiftContext());
 
   // Privacy policy page
   if (view.type === 'privacy') {
@@ -100,8 +102,10 @@ export default function App() {
       <RedeemPage
         code={view.code}
         onRedeemed={(tier, giftCode) => {
-          // After redeeming, go to the main app where they'll connect Strava and design
-          window.history.pushState({}, '', `/?redeemed=${giftCode}&tier=${tier}`);
+          const ctx: GiftContext = { giftCode, tier };
+          persistGiftContext(ctx);
+          setGiftContext(ctx);
+          window.history.pushState({}, '', '/');
           setView({ type: 'browse' });
         }}
       />
@@ -116,6 +120,7 @@ export default function App() {
         mode="individual"
         stravaTracksMap={stravaTracksMap}
         onBack={() => setView({ type: 'browse' })}
+        giftContext={giftContext}
       />
     );
   }
@@ -127,6 +132,7 @@ export default function App() {
         mode="compilation"
         stravaTracksMap={stravaTracksMap}
         onBack={() => setView({ type: 'browse' })}
+        giftContext={giftContext}
       />
     );
   }

@@ -76,7 +76,7 @@ export function stravaToActivitySummary(raw: StravaActivity): ActivitySummary {
     elevationLoss: 0,
     calories: raw.calories ?? 0,
     location,
-    sportType: 'running',
+    sportType: raw.sport_type || raw.type || 'Run',
     startPoint: raw.start_latlng ? { lat: raw.start_latlng[0], lng: raw.start_latlng[1] } : null,
     endPoint: raw.end_latlng ? { lat: raw.end_latlng[0], lng: raw.end_latlng[1] } : null,
     bounds,

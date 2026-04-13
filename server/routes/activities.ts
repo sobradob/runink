@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getSession, updateSession } from '../lib/session.js';
-import { fetchAllRunActivities, getValidAccessToken } from '../lib/strava-client.js';
+import { fetchAllGpsActivities, getValidAccessToken } from '../lib/strava-client.js';
 import { stravaToActivitySummary, stravaToTrackData } from '../lib/transform.js';
 import type { ActivitySummary, TrackData } from '../lib/transform.js';
 
@@ -51,8 +51,8 @@ activitiesRouter.get('/activities', async (req, res) => {
 
     // Fetch from Strava
     console.log('Fetching activities from Strava...');
-    const stravaActivities = await fetchAllRunActivities(validToken.accessToken);
-    console.log(`Fetched ${stravaActivities.length} running activities`);
+    const stravaActivities = await fetchAllGpsActivities(validToken.accessToken);
+    console.log(`Fetched ${stravaActivities.length} GPS activities`);
 
     // Transform to RunInk format
     const activities: ActivitySummary[] = [];

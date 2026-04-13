@@ -20,6 +20,13 @@ export function OrderSuccessPage({ orderId }: OrderSuccessPageProps) {
           const data = await getOrderDetails(orderId);
           if (cancelled) return;
           setOrder(data);
+
+          // Gift orders skip payment — go straight to shipping
+          if (data.type === 'gift') {
+            setStep(data.status === 'fulfilling' || data.status === 'pending-fulfillment' ? 'done' : 'shipping');
+            return;
+          }
+
           if (data.status === 'paid' || data.status === 'fulfilling' || data.status === 'pending-fulfillment') {
             setStep(data.status === 'fulfilling' || data.status === 'pending-fulfillment' ? 'done' : 'shipping');
             return;
@@ -48,9 +55,9 @@ export function OrderSuccessPage({ orderId }: OrderSuccessPageProps) {
               className="text-xl tracking-[0.15em] uppercase mb-2"
               style={{ fontFamily: 'var(--font-display)' }}
             >
-              Confirming Payment
+              Confirming Order
             </h2>
-            <p className="text-white/40 text-sm">Verifying your payment with Stripe...</p>
+            <p className="text-white/40 text-sm">Verifying your order...</p>
           </div>
         )}
 
@@ -62,10 +69,12 @@ export function OrderSuccessPage({ orderId }: OrderSuccessPageProps) {
                 className="text-xl tracking-[0.15em] uppercase mb-2"
                 style={{ fontFamily: 'var(--font-display)' }}
               >
-                Payment Confirmed
+                {order?.type === 'gift' ? 'Poster Ready' : 'Payment Confirmed'}
               </h2>
               <p className="text-white/40 text-sm">
-                Order {orderId} — now tell us where to ship it.
+                {order?.type === 'gift'
+                  ? 'Your free poster is ready — now tell us where to ship it.'
+                  : `Order ${orderId} — now tell us where to ship it.`}
               </p>
             </div>
             {order?.pngUrl && (

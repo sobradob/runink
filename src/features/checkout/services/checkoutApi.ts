@@ -117,6 +117,45 @@ export async function uploadPosterPng(uploadUrl: string, method: string, blob: B
   }
 }
 
+// === Gift context persistence (cookie + URL param fallback) ===
+
+export interface GiftContext {
+  giftCode: string;
+  tier: string;
+}
+
+const GIFT_COOKIE = 'runink_gift';
+
+export function persistGiftContext(ctx: GiftContext): void {
+  document.cookie = `${GIFT_COOKIE}=${encodeURIComponent(JSON.stringify(ctx))}; path=/; max-age=86400; SameSite=Lax`;
+}
+
+export function clearGiftContext(): void {
+  document.cookie = `${GIFT_COOKIE}=; path=/; max-age=0`;
+}
+
+export function getGiftContext(): GiftContext | null {
+  // 1. Check URL params (redeem redirect fallback)
+  const params = new URLSearchParams(window.location.search);
+  const redeemed = params.get('redeemed');
+  const tier = params.get('tier');
+  if (redeemed && tier) {
+    const ctx: GiftContext = { giftCode: redeemed, tier };
+    persistGiftContext(ctx);
+    return ctx;
+  }
+
+  // 2. Check cookie
+  const match = document.cookie.match(new RegExp(`${GIFT_COOKIE}=([^;]+)`));
+  if (match) {
+    try {
+      return JSON.parse(decodeURIComponent(match[1]));
+    } catch { return null; }
+  }
+
+  return null;
+}
+
 export async function submitShipping(orderId: string, address: {
   name: string;
   email?: string;

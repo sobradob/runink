@@ -16,6 +16,8 @@ import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer'
 /** Flip to false to fall back to the old Canvas-based renderer */
 const USE_CAPTURE_RENDERER = true;
 import { OrderButton } from '@/features/checkout/ui/OrderButton';
+import { GiftOrderButton } from '@/features/checkout/ui/GiftOrderButton';
+import type { GiftContext } from '@/features/checkout/services/checkoutApi';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
 
 interface PosterEditorProps {
@@ -24,6 +26,7 @@ interface PosterEditorProps {
   mode: 'individual' | 'compilation';
   stravaTracksMap?: Record<string, TrackData>;
   onBack: () => void;
+  giftContext?: GiftContext | null;
 }
 
 /** Generate km markers along a track */
@@ -68,7 +71,7 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBack }: PosterEditorProps) {
+export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBack, giftContext }: PosterEditorProps) {
   const [config, setConfig] = useState<PosterConfig>({
     mode,
     themeId: 'noir',
@@ -349,14 +352,27 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         onThemeChange={handleThemeChange}
         onExport={handleExport}
         exporting={exporting}
-        orderButtonSlot={<OrderButton
-          posterConfig={{
-            ...config,
-            activityId: activity?.id,
-            activityIds: activities?.map(a => a.id),
-          }}
-          renderPoster={renderPoster}
-        />}
+        orderButtonSlot={giftContext ? (
+          <GiftOrderButton
+            giftCode={giftContext.giftCode}
+            tierId={giftContext.tier}
+            posterConfig={{
+              ...config,
+              activityId: activity?.id,
+              activityIds: activities?.map(a => a.id),
+            }}
+            renderPoster={renderPoster}
+          />
+        ) : (
+          <OrderButton
+            posterConfig={{
+              ...config,
+              activityId: activity?.id,
+              activityIds: activities?.map(a => a.id),
+            }}
+            renderPoster={renderPoster}
+          />
+        )}
       />
     </div>
   );
