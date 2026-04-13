@@ -4,7 +4,7 @@ import { createOrder, getOrder, updateOrder, getGiftCode, redeemGiftCode } from 
 import { createOrderCheckoutSession, getTier } from '../lib/stripe.js';
 import { createPrintOrder, getShippingEstimate } from '../lib/gelato.js';
 import { getUploadUrl, getPublicUrl, storeLocal, getLocalPath } from '../lib/storage.js';
-import { sendShippingConfirmation } from '../lib/email.js';
+import { sendShippingConfirmation, sendGiftOrderConfirmation } from '../lib/email.js';
 import express from 'express';
 import fs from 'fs';
 
@@ -63,7 +63,7 @@ ordersRouter.post('/', orderCreateLimiter, async (req, res) => {
 
 /** Create an order from a redeemed gift code (no payment needed) */
 ordersRouter.post('/from-gift', async (req, res) => {
-  const { giftCode, posterConfig } = req.body;
+  const { giftCode, posterConfig, email } = req.body;
 
   if (!giftCode) {
     return res.status(400).json({ error: 'Gift code required' });
@@ -88,12 +88,24 @@ ordersRouter.post('/from-gift', async (req, res) => {
       return res.status(410).json({ error: 'Gift code could not be redeemed' });
     }
 
+    const tier = getTier(gift.tier);
     const order = await createOrder({
       type: 'gift',
-      tier: req.body.tierId || gift.tier, // Use the tier from the gift code
+      tier: req.body.tierId || gift.tier,
       giftCode,
       posterConfig: posterConfig ? JSON.stringify(posterConfig) : undefined,
     });
+
+    // Send confirmation email with link to add shipping address
+    if (email) {
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      sendGiftOrderConfirmation({
+        to: email,
+        orderId: order.order_id,
+        tierName: tier?.name || gift.tier,
+        orderUrl: `${baseUrl}/order/${order.order_id}/success`,
+      }).catch(err => console.error('[orders] Gift order confirmation email error:', err));
+    }
 
     res.json({ orderId: order.order_id });
   } catch (err: any) {

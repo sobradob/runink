@@ -61,6 +61,56 @@ export async function sendOrderConfirmation(params: {
   }
 }
 
+export async function sendGiftOrderConfirmation(params: {
+  to: string;
+  orderId: string;
+  tierName: string;
+  orderUrl: string;
+}): Promise<boolean> {
+  const client = getClient();
+  if (!client) {
+    console.log(`[email] Would send gift order confirmation to ${params.to} (RESEND_API_KEY not set)`);
+    return false;
+  }
+
+  try {
+    const { data, error } = await client.emails.send({
+      from: FROM(),
+      to: params.to,
+      ...(NOTIFY() && { bcc: NOTIFY() }),
+      subject: `Your RunInk poster is ready — add your shipping address`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #1a1a1a;">Your Poster is Ready!</h1>
+          <p>Your RunInk poster has been created. Here are the details:</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <tr><td style="padding: 8px 0; color: #666;">Order ID</td><td style="padding: 8px 0; font-weight: bold;">${params.orderId}</td></tr>
+            <tr><td style="padding: 8px 0; color: #666;">Product</td><td style="padding: 8px 0;">${params.tierName}</td></tr>
+            <tr><td style="padding: 8px 0; color: #666;">Price</td><td style="padding: 8px 0;">Free (gift)</td></tr>
+          </table>
+          <p>To get your poster printed and shipped, please provide your shipping address:</p>
+          <p style="margin: 24px 0;">
+            <a href="${params.orderUrl}" style="display: inline-block; padding: 12px 32px; background: #1a1a1a; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 500;">
+              Add Shipping Address
+            </a>
+          </p>
+          <p style="color: #666; font-size: 14px;">Or copy this link: <a href="${params.orderUrl}" style="color: #2563eb;">${params.orderUrl}</a></p>
+          <p style="margin-top: 30px; color: #999; font-size: 12px;">RunInk — Your runs, beautifully printed.</p>
+        </div>
+      `,
+    });
+    if (error) {
+      console.error('[email] Gift order confirmation failed:', error);
+      return false;
+    }
+    console.log(`[email] Gift order confirmation sent to ${params.to}, id: ${data.id}`);
+    return true;
+  } catch (err) {
+    console.error('[email] Failed to send gift order confirmation:', err);
+    return false;
+  }
+}
+
 export async function sendGiftCode(params: {
   to: string;
   code: string;

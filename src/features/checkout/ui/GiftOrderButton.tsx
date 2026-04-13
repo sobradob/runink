@@ -11,6 +11,8 @@ interface GiftOrderButtonProps {
 }
 
 export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster }: GiftOrderButtonProps) {
+  const [showEmail, setShowEmail] = useState(false);
+  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -18,12 +20,17 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster }
   const tier = GIFT_TIERS_CLIENT.find((t) => t.id === tierId);
 
   const handleClaim = async () => {
+    if (!email) {
+      setError('Please enter your email address');
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
       // Step 1: Create order from gift code
       setStatus('Creating order...');
-      const { orderId } = await createGiftOrder({ giftCode, tierId });
+      const { orderId } = await createGiftOrder({ giftCode, tierId, email });
 
       // Step 2: Render poster at print dimensions
       if (renderPoster) {
@@ -58,13 +65,42 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster }
         </div>
       )}
 
-      <button
-        onClick={handleClaim}
-        disabled={loading}
-        className="w-full py-3 rounded-lg bg-emerald-600 text-white font-medium text-sm tracking-wider uppercase hover:bg-emerald-500 disabled:opacity-50 transition-all"
-      >
-        {loading ? status || 'Processing...' : 'Claim Free Print'}
-      </button>
+      {!showEmail ? (
+        <button
+          onClick={() => setShowEmail(true)}
+          className="w-full py-3 rounded-lg bg-emerald-600 text-white font-medium text-sm tracking-wider uppercase hover:bg-emerald-500 transition-all"
+        >
+          Claim Free Print
+        </button>
+      ) : (
+        <>
+          <input
+            type="email"
+            placeholder="Your email address *"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={loading}
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-white/30"
+            autoFocus
+          />
+          <p className="text-[10px] text-white/30">We'll send you a confirmation with a link to add your shipping address.</p>
+          <button
+            onClick={handleClaim}
+            disabled={loading || !email}
+            className="w-full py-3 rounded-lg bg-emerald-600 text-white font-medium text-sm tracking-wider uppercase hover:bg-emerald-500 disabled:opacity-50 transition-all"
+          >
+            {loading ? status || 'Processing...' : 'Confirm & Create Poster'}
+          </button>
+          {!loading && (
+            <button
+              onClick={() => setShowEmail(false)}
+              className="w-full py-1 text-xs text-white/30 hover:text-white/50"
+            >
+              Cancel
+            </button>
+          )}
+        </>
+      )}
 
       {error && (
         <div className="text-red-400 text-xs text-center">{error}</div>

@@ -86,6 +86,7 @@ export async function createDirectOrder(params: {
 export async function createGiftOrder(params: {
   giftCode: string;
   tierId: string;
+  email?: string;
 }): Promise<{ orderId: string }> {
   const res = await fetch('/api/orders/from-gift', {
     method: 'POST',
