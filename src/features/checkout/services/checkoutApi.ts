@@ -159,6 +159,7 @@ export function getGiftContext(): GiftContext | null {
 export async function submitShipping(orderId: string, address: {
   name: string;
   email?: string;
+  phone?: string;
   address1: string;
   address2?: string;
   city: string;

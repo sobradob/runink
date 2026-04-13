@@ -63,6 +63,7 @@ export interface ShippingAddress {
   countryCode: string;
   zip: string;
   email?: string;
+  phone?: string;
 }
 
 export interface GelatoOrderResult {
@@ -115,6 +116,7 @@ export async function createPrintOrder(params: {
       country: params.shipping.countryCode,
       postCode: params.shipping.zip,
       email: params.shipping.email || '',
+      phone: params.shipping.phone || '',
     },
   };
 

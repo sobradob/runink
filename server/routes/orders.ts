@@ -187,7 +187,7 @@ ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Order not yet paid' });
   }
 
-  const { name, email, address1, address2, city, stateCode, countryCode, zip } = req.body;
+  const { name, email, phone, address1, address2, city, stateCode, countryCode, zip } = req.body;
 
   if (!name || !address1 || !city || !countryCode || !zip) {
     return res.status(400).json({ error: 'Missing required shipping fields' });
@@ -215,7 +215,7 @@ ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
         externalId: order.order_id,
         tierId: order.tier,
         imageUrl: pngUrl,
-        shipping: { name, email, address1, address2, city, stateCode, countryCode, zip },
+        shipping: { name, email, phone, address1, address2, city, stateCode, countryCode, zip },
       });
 
       await updateOrder(order.order_id, {
