@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_DIR = path.resolve(__dirname, '../../data');
+// DB_PATH env var allows pointing to a persistent mount in production
+const DB_DIR = process.env.DB_PATH || path.resolve(__dirname, '../../data');
 fs.mkdirSync(DB_DIR, { recursive: true });
 const DB_PATH = path.join(DB_DIR, 'runink.db');
 

@@ -9,6 +9,7 @@ import { activitiesRouter } from './routes/activities.js';
 import { giftRouter } from './routes/gift.js';
 import { ordersRouter } from './routes/orders.js';
 import { webhooksRouter } from './routes/webhooks.js';
+import { adminRouter } from './routes/admin.js';
 import { LOCAL_DIR } from './lib/storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,7 @@ app.use('/auth', authRouter);
 app.use('/api/strava', activitiesRouter);
 app.use('/api/gift', giftRouter);
 app.use('/api/orders', ordersRouter);
+app.use('/api/admin', adminRouter);
 
 // Serve locally uploaded files (dev fallback)
 app.use('/uploads', express.static(LOCAL_DIR));
@@ -75,6 +77,7 @@ app.listen(PORT, () => {
     GELATO_API_KEY: !!process.env.GELATO_API_KEY,
     EMAIL_FROM: process.env.EMAIL_FROM || '(not set)',
     NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || '(not set)',
+    ADMIN_SECRET: !!process.env.ADMIN_SECRET,
   };
   console.log('Config check:', JSON.stringify(checks));
   if (checks.EMAIL_FROM.includes('resend.dev')) {

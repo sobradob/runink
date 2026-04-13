@@ -1,0 +1,28 @@
+# DigitalOcean App Platform spec — persistent disk for SQLite
+#
+# To apply:
+#   1. Install doctl: brew install doctl
+#   2. doctl apps update <APP_ID> --spec .do/app.yaml
+#   OR set it via the Dashboard > App > Settings > App Spec (YAML editor)
+#
+# IMPORTANT: This is a REFERENCE spec. You must merge the disk/mount
+# and DB_PATH env var into your existing app spec. Don't replace the
+# whole spec or you'll lose other settings.
+#
+# What to add to your existing service component:
+#
+#   services:
+#     - name: runink
+#       ...existing config...
+#       # ADD THIS: persistent disk for SQLite database
+#       disks:
+#         - name: runink-data
+#           size_gib: 1
+#           mount_path: /data
+#       # ADD THIS env var (component-level so it takes precedence):
+#       envs:
+#         - key: DB_PATH
+#           value: /data
+#         - key: ADMIN_SECRET
+#           value: "<generate-a-random-secret>"
+#           type: SECRET
