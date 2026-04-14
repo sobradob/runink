@@ -35,13 +35,13 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
     const counts = new Map<string, number>();
     for (const a of activities) {
       if (!a.hasTrack) continue;
-      // Normalize similar types into display groups
-      const type = a.sportType || 'Run';
+      // Normalize similar types into display groups (case-insensitive)
+      const type = (a.sportType || 'Run').toLowerCase();
       const group =
-        type.includes('Run') || type === 'TrailRun' || type === 'VirtualRun' ? 'Run' :
-        type === 'Walk' || type === 'Hike' ? 'Walk/Hike' :
-        type.includes('Ride') || type.includes('ride') || type.includes('Bike') ? 'Ride' :
-        type;
+        type.includes('run') || type === 'trailrun' || type === 'virtualrun' ? 'Run' :
+        type === 'walk' || type === 'hike' ? 'Walk/Hike' :
+        type.includes('ride') || type.includes('bike') ? 'Ride' :
+        a.sportType || 'Run';
       counts.set(group, (counts.get(group) || 0) + 1);
     }
     return counts;
@@ -62,11 +62,11 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
         .filter((a) => a.hasTrack)
         .filter((a) => {
           if (sportTypeFilter === 'All') return true;
-          const type = a.sportType || 'Run';
-          if (sportTypeFilter === 'Run') return type.includes('Run') || type === 'TrailRun' || type === 'VirtualRun';
-          if (sportTypeFilter === 'Walk/Hike') return type === 'Walk' || type === 'Hike';
-          if (sportTypeFilter === 'Ride') return type.includes('Ride') || type.includes('ride') || type.includes('Bike');
-          return type === sportTypeFilter;
+          const type = (a.sportType || 'Run').toLowerCase();
+          if (sportTypeFilter === 'Run') return type.includes('run') || type === 'trailrun' || type === 'virtualrun';
+          if (sportTypeFilter === 'Walk/Hike') return type === 'walk' || type === 'hike';
+          if (sportTypeFilter === 'Ride') return type.includes('ride') || type.includes('bike');
+          return (a.sportType || 'Run') === sportTypeFilter;
         })
         .sort((a, b) => b.timestamp - a.timestamp),
     [activities, search, location, region, radiusKm, dateFrom, dateTo, filterMode, sportTypeFilter]
