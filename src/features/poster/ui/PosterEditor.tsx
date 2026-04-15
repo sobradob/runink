@@ -4,6 +4,19 @@ import type { ActivitySummary, TrackData } from '@/types/activity';
 import type { Theme } from '@/types/theme';
 import type { PosterConfig, PosterDimensions, MapMarker, MarkerIcon } from '@/types/poster';
 import { POSTER_PRESETS, DEFAULT_LAYERS } from '@/types/poster';
+import { PRINT_DIMENSIONS } from '@/features/checkout/ui/tiers';
+
+/** Map a gift tier ID to the matching POSTER_PRESETS entry */
+function presetForTier(tierId: string): typeof POSTER_PRESETS[number] {
+  const dims = PRINT_DIMENSIONS[tierId];
+  if (dims) {
+    const match = POSTER_PRESETS.find(
+      (p) => p.widthMm === dims.widthMm && p.heightMm === dims.heightMm,
+    );
+    if (match) return match;
+  }
+  return POSTER_PRESETS[0];
+}
 import { getDefaultTheme } from '@/features/theme/infrastructure/themeRepository';
 
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
@@ -75,7 +88,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   const [config, setConfig] = useState<PosterConfig>({
     mode,
     themeId: 'noir',
-    dimensions: POSTER_PRESETS[0],
+    dimensions: giftContext ? presetForTier(giftContext.tier) : POSTER_PRESETS[0],
     title: mode === 'individual'
       ? (activity?.location || activity?.name || '')
       : (activities?.[0]?.location || ''),
@@ -353,6 +366,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         showKmMarkers={showKmMarkers}
         showStartFinish={showStartFinish}
         placingIcon={placingIcon}
+        dimensionsLocked={!!giftContext}
         onShowKmMarkersChange={setShowKmMarkers}
         onShowStartFinishChange={setShowStartFinish}
         onPlaceIcon={setPlacingIcon}

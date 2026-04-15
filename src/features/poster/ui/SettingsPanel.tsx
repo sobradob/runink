@@ -10,6 +10,7 @@ interface SettingsPanelProps {
   showKmMarkers: boolean;
   showStartFinish: boolean;
   placingIcon: MarkerIcon | null;
+  dimensionsLocked?: boolean;
   onShowKmMarkersChange: (v: boolean) => void;
   onShowStartFinishChange: (v: boolean) => void;
   onPlaceIcon: (icon: MarkerIcon | null) => void;
@@ -28,6 +29,7 @@ export function SettingsPanel({
   showKmMarkers,
   showStartFinish,
   placingIcon,
+  dimensionsLocked,
   onShowKmMarkersChange,
   onShowStartFinishChange,
   onPlaceIcon,
@@ -122,21 +124,30 @@ export function SettingsPanel({
 
       {/* Dimensions */}
       <Section title="Size">
-        <div className="grid grid-cols-2 gap-1.5">
-          {POSTER_PRESETS.map((preset) => (
-            <button
-              key={preset.label}
-              onClick={() => onConfigChange({ dimensions: preset })}
-              className={`text-xs px-2 py-1.5 rounded border transition-all ${
-                config.dimensions.label === preset.label
-                  ? 'border-white/40 bg-white/10 text-white'
-                  : 'border-white/10 text-white/40 hover:text-white/60'
-              }`}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
+        {dimensionsLocked ? (
+          <div>
+            <div className="text-xs px-2 py-1.5 rounded border border-white/40 bg-white/10 text-white text-center">
+              {config.dimensions.label}
+            </div>
+            <p className="text-[10px] text-white/30 mt-1.5 text-center">Size set by gift</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-1.5">
+            {POSTER_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => onConfigChange({ dimensions: preset })}
+                className={`text-xs px-2 py-1.5 rounded border transition-all ${
+                  config.dimensions.label === preset.label
+                    ? 'border-white/40 bg-white/10 text-white'
+                    : 'border-white/10 text-white/40 hover:text-white/60'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        )}
       </Section>
 
       {/* Map orientation */}

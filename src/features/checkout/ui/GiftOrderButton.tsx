@@ -30,7 +30,7 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster }
     try {
       // Step 1: Create order from gift code
       setStatus('Creating order...');
-      const { orderId } = await createGiftOrder({ giftCode, tierId, email });
+      const { orderId } = await createGiftOrder({ giftCode, tierId, email, posterConfig });
 
       // Step 2: Render poster at print dimensions
       if (renderPoster) {

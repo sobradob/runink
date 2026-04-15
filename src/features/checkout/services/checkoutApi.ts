@@ -87,6 +87,7 @@ export async function createGiftOrder(params: {
   giftCode: string;
   tierId: string;
   email?: string;
+  posterConfig?: any;
 }): Promise<{ orderId: string }> {
   const res = await fetch('/api/orders/from-gift', {
     method: 'POST',
