@@ -53,7 +53,7 @@ export function StatsOverlay({
 
         {/* Stats row */}
         {showStats && (
-          <div className="flex gap-6" style={{ color: secondaryColor }}>
+          <div className="flex flex-wrap gap-x-6 gap-y-2" style={{ color: secondaryColor }}>
             <StatItem label="Distance" value={formatDistance(activity.distance)} color={textColor} />
             <StatItem label="Time" value={formatDuration(activity.movingDuration || activity.duration)} color={textColor} />
             <StatItem label="Pace" value={formatPace(activity.avgPace)} color={textColor} />

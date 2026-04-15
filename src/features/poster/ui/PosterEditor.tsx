@@ -227,14 +227,23 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
    *  When printDimensions is provided (ordering), renders at those dimensions instead of editor config. */
   const renderPoster = useCallback(async (printDimensions?: PosterDimensions): Promise<Blob> => {
     if (USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
-      const dims = printDimensions || config.dimensions;
-      return capturePosterToBlob({
-        element: previewContainerRef.current,
-        map: mapInstanceRef.current,
-        dimensions: dims,
-      });
+      try {
+        const dims = printDimensions || config.dimensions;
+        return await capturePosterToBlob({
+          element: previewContainerRef.current,
+          map: mapInstanceRef.current,
+          dimensions: dims,
+        });
+      } catch (e: any) {
+        if (e.message === 'MAP_BLANK') {
+          console.warn('[render] Capture renderer detected blank map, using canvas fallback');
+          // Fall through to canvas renderer below
+        } else {
+          throw e;
+        }
+      }
     }
-    // Fallback to old Canvas-based renderer
+    // Fallback to Canvas-based renderer (creates own MapLibre instance with full tile loading)
     const opts = buildRenderOptions();
     if (printDimensions) {
       opts.config = { ...opts.config, dimensions: printDimensions };

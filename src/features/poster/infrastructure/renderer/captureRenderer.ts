@@ -1,4 +1,5 @@
 import { toBlob } from 'html-to-image';
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { PosterDimensions } from '@/types/poster';
 
 function mmToPixels(mm: number, dpi: number): number {
@@ -7,7 +8,7 @@ function mmToPixels(mm: number, dpi: number): number {
 
 interface CaptureOptions {
   element: HTMLElement;
-  map: unknown; // kept for API compat, unused
+  map: MaplibreMap;
   dimensions: PosterDimensions;
 }
 
@@ -19,7 +20,7 @@ interface CaptureOptions {
  * resizing the container and needing to re-load tiles at a higher zoom level.
  */
 export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
-  const { element, dimensions } = opts;
+  const { element, map, dimensions } = opts;
   const targetWidth = mmToPixels(dimensions.widthMm, dimensions.dpi);
   const targetHeight = mmToPixels(dimensions.heightMm, dimensions.dpi);
 
@@ -33,14 +34,51 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
   const maxTarget = Math.max(targetWidth, targetHeight);
   const cappedScale = Math.min(1, maxSide / maxTarget);
   const outputWidth = Math.round(targetWidth * cappedScale);
-  const outputHeight = Math.round(targetHeight * cappedScale);
 
   // Compute pixelRatio to scale the preview up to print resolution
   const previewWidth = element.offsetWidth;
   const pixelRatio = outputWidth / previewWidth;
 
-  // Small delay to ensure map is fully rendered
-  await new Promise((r) => setTimeout(r, 200));
+  // Wait for map tiles to be fully loaded (proven double-idle pattern)
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      const done = () => {
+        map.triggerRepaint();
+        map.once('idle', () => resolve());
+      };
+      if (map.loaded() && map.areTilesLoaded()) {
+        done();
+      } else {
+        map.once('idle', done);
+      }
+    }),
+    // Safety timeout — don't hang forever if tiles never load
+    new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+  ]);
+
+  // Sanity check: verify the map canvas isn't blank
+  try {
+    const mapCanvas = map.getCanvas();
+    const gl = mapCanvas.getContext('webgl2') || mapCanvas.getContext('webgl');
+    if (gl) {
+      const pixel = new Uint8Array(4);
+      // Sample a pixel near the center of the canvas
+      gl.readPixels(
+        Math.floor(mapCanvas.width / 2),
+        Math.floor(mapCanvas.height / 2),
+        1, 1,
+        gl.RGBA, gl.UNSIGNED_BYTE, pixel,
+      );
+      if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
+        console.warn('[capture] Map canvas center pixel is blank — falling back');
+        throw new Error('MAP_BLANK');
+      }
+    }
+  } catch (e: any) {
+    if (e.message === 'MAP_BLANK') throw e;
+    // WebGL read failed — continue anyway, might still work
+    console.warn('[capture] Could not verify map canvas:', e.message);
+  }
 
   // Capture the DOM at high resolution using pixelRatio
   const blob = await toBlob(element, {
