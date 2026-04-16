@@ -21,8 +21,12 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const DIST_DIR = path.resolve(__dirname, '../dist');
 
 // Trust reverse proxy (DigitalOcean App Platform, nginx, etc.)
-// Required for correct req.protocol (https) and req.ip behind a proxy
-app.set('trust proxy', true);
+// Required for correct req.protocol (https) and req.ip behind a proxy.
+// Value is the number of proxy hops to trust — DO App Platform adds exactly
+// one (its load balancer). Using `true` (permissive) would let clients spoof
+// X-Forwarded-For and bypass express-rate-limit's IP-based limiting
+// (ERR_ERL_PERMISSIVE_TRUST_PROXY).
+app.set('trust proxy', 1);
 
 // Webhooks need raw body — must be before express.json()
 app.use('/api/webhooks', webhooksRouter);
