@@ -30,6 +30,10 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
   // Activity type filter
   const [sportTypeFilter, setSportTypeFilter] = useState('Run');
 
+  // Collapsible filters on mobile
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const hasActiveFilters = !!(location || region || dateFrom || dateTo);
+
   // Compute activity type counts for filter pills
   const sportTypeCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -144,7 +148,7 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
                 <button
                   key={type}
                   onClick={() => setSportTypeFilter(type)}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  className={`text-xs px-2.5 py-1.5 md:py-1 rounded-full border transition-colors ${
                     sportTypeFilter === type
                       ? 'border-white/40 bg-white/15 text-white'
                       : 'border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
@@ -157,131 +161,145 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
           </div>
         )}
 
-        {/* Filter mode tabs */}
-        <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
-          <button
-            onClick={() => { setFilterMode('location'); setRegion(null); }}
-            className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${
-              filterMode === 'location' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/60'
-            }`}
-          >
-            By Location Name
-          </button>
-          <button
-            onClick={() => { setFilterMode('region'); setLocation(''); }}
-            className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${
-              filterMode === 'region' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/60'
-            }`}
-          >
-            By Region (Radius)
-          </button>
-        </div>
+        {/* Filters toggle (mobile only) */}
+        <button
+          onClick={() => setFiltersOpen((v) => !v)}
+          className="md:hidden flex items-center gap-1.5 text-xs text-white/40 py-1"
+        >
+          <svg className={`w-3 h-3 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+          Filters {hasActiveFilters && <span className="text-white/60">(active)</span>}
+        </button>
 
-        {/* Location dropdown */}
-        {filterMode === 'location' && (
-          <select
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-white/30"
-          >
-            <option value="">All locations</option>
-            {locations.map((loc) => (
-              <option key={loc} value={loc}>{loc}</option>
-            ))}
-          </select>
-        )}
-
-        {/* Region filter */}
-        {filterMode === 'region' && (
-          <div className="space-y-2">
-            {/* Suggested regions */}
-            <div className="flex flex-wrap gap-1.5">
-              {suggestedRegions.slice(0, 8).map((r) => (
-                <button
-                  key={r.label}
-                  onClick={() => handleSelectRegionSuggestion(r)}
-                  className={`text-xs px-2 py-1 rounded-full border transition-colors ${
-                    region?.label === r.label
-                      ? 'border-white/40 bg-white/15 text-white'
-                      : 'border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
-                  }`}
-                >
-                  {r.label} ({r.count})
-                </button>
-              ))}
-            </div>
-
-            {/* Custom place search */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Or search a place (e.g. Greater London)..."
-                value={regionQuery}
-                onChange={(e) => setRegionQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleGeocode()}
-                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
-              />
-              <button
-                onClick={handleGeocode}
-                disabled={geocoding || !regionQuery.trim()}
-                className="px-3 py-2 rounded-lg bg-white/10 text-white/60 text-sm hover:bg-white/15 disabled:opacity-30 transition-colors"
-              >
-                {geocoding ? '...' : 'Search'}
-              </button>
-            </div>
-
-            {/* Radius slider */}
-            {region && (
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-white/40 w-12">Radius</span>
-                <input
-                  type="range"
-                  min={5}
-                  max={100}
-                  step={5}
-                  value={radiusKm}
-                  onChange={(e) => setRadiusKm(Number(e.target.value))}
-                  className="flex-1 accent-white"
-                />
-                <span className="text-xs text-white/60 w-14 text-right">{radiusKm} km</span>
-              </div>
-            )}
-
-            {region && (
-              <div className="text-xs text-white/30">
-                Showing runs within {radiusKm}km of {region.label}
-              </div>
-            )}
+        {/* Collapsible filter section — always visible on desktop, toggle on mobile */}
+        <div className={`space-y-3 ${filtersOpen ? 'block' : 'hidden'} md:block`}>
+          {/* Filter mode tabs */}
+          <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
+            <button
+              onClick={() => { setFilterMode('location'); setRegion(null); }}
+              className={`flex-1 text-xs py-2 md:py-1.5 rounded-md transition-colors ${
+                filterMode === 'location' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              By Location
+            </button>
+            <button
+              onClick={() => { setFilterMode('region'); setLocation(''); }}
+              className={`flex-1 text-xs py-2 md:py-1.5 rounded-md transition-colors ${
+                filterMode === 'region' ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              By Region
+            </button>
           </div>
-        )}
 
-        {/* Date filters */}
-        <div className="flex gap-2">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-white/30"
-          />
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-white/30"
-          />
+          {/* Location dropdown */}
+          {filterMode === 'location' && (
+            <select
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 md:py-2 text-sm text-white focus:outline-none focus:border-white/30"
+            >
+              <option value="">All locations</option>
+              {locations.map((loc) => (
+                <option key={loc} value={loc}>{loc}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Region filter */}
+          {filterMode === 'region' && (
+            <div className="space-y-2">
+              {/* Suggested regions */}
+              <div className="flex flex-wrap gap-1.5">
+                {suggestedRegions.slice(0, 8).map((r) => (
+                  <button
+                    key={r.label}
+                    onClick={() => handleSelectRegionSuggestion(r)}
+                    className={`text-xs px-2.5 py-1.5 md:px-2 md:py-1 rounded-full border transition-colors ${
+                      region?.label === r.label
+                        ? 'border-white/40 bg-white/15 text-white'
+                        : 'border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
+                    }`}
+                  >
+                    {r.label} ({r.count})
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom place search */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Search a place..."
+                  value={regionQuery}
+                  onChange={(e) => setRegionQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleGeocode()}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 md:py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+                />
+                <button
+                  onClick={handleGeocode}
+                  disabled={geocoding || !regionQuery.trim()}
+                  className="px-3 py-2.5 md:py-2 rounded-lg bg-white/10 text-white/60 text-sm hover:bg-white/15 disabled:opacity-30 transition-colors"
+                >
+                  {geocoding ? '...' : 'Search'}
+                </button>
+              </div>
+
+              {/* Radius slider */}
+              {region && (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-white/40 w-12">Radius</span>
+                  <input
+                    type="range"
+                    min={5}
+                    max={100}
+                    step={5}
+                    value={radiusKm}
+                    onChange={(e) => setRadiusKm(Number(e.target.value))}
+                    className="flex-1 accent-white"
+                  />
+                  <span className="text-xs text-white/60 w-14 text-right">{radiusKm} km</span>
+                </div>
+              )}
+
+              {region && (
+                <div className="text-xs text-white/30">
+                  Showing runs within {radiusKm}km of {region.label}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Date filters */}
+          <div className="flex flex-col md:flex-row gap-2">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2.5 md:py-2 text-sm text-white focus:outline-none focus:border-white/30"
+            />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-2 py-2.5 md:py-2 text-sm text-white focus:outline-none focus:border-white/30"
+            />
+          </div>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <span className="text-xs text-white/40">
             {filtered.length} runs with GPS tracks
           </span>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {/* Quick compilation button */}
             {filtered.length > 1 && !selectionMode && (
               <button
                 onClick={handleQuickCompilation}
-                className="text-xs px-3 py-1 rounded bg-white text-black font-medium hover:bg-white/90"
+                className="text-xs px-3 py-2 md:py-1 rounded bg-white text-black font-medium hover:bg-white/90"
               >
                 Compile all {filtered.length} runs
               </button>
@@ -290,14 +308,14 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
               <>
                 <button
                   onClick={selectAllFiltered}
-                  className="text-xs px-2 py-1 rounded bg-white/10 text-white/60 hover:text-white"
+                  className="text-xs px-3 py-2 md:py-1 rounded bg-white/10 text-white/60 hover:text-white"
                 >
                   Select all ({filtered.length})
                 </button>
                 <button
                   onClick={handleCreateCompilation}
                   disabled={selectedIds.size < 2}
-                  className="text-xs px-3 py-1 rounded bg-white text-black font-medium disabled:opacity-30"
+                  className="text-xs px-3 py-2 md:py-1 rounded bg-white text-black font-medium disabled:opacity-30"
                 >
                   Create compilation ({selectedIds.size})
                 </button>
@@ -305,14 +323,21 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
             )}
             <button
               onClick={() => { setSelectionMode(!selectionMode); setSelectedIds(new Set()); }}
-              className={`text-xs px-2 py-1 rounded ${
+              className={`text-xs px-3 py-2 md:py-1 rounded ${
                 selectionMode ? 'bg-white text-black' : 'bg-white/10 text-white/60 hover:text-white'
               }`}
             >
-              {selectionMode ? 'Cancel' : 'Multi-select'}
+              {selectionMode ? 'Cancel' : 'Combine runs'}
             </button>
           </div>
         </div>
+
+        {/* Multi-select explainer (mobile) */}
+        {selectionMode && (
+          <div className="text-xs text-white/30 bg-white/5 px-3 py-2 rounded-lg md:hidden">
+            Select runs to overlay on one poster
+          </div>
+        )}
       </div>
 
       {/* Activity list */}
@@ -327,18 +352,18 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
                 onSelectSingle(activity);
               }
             }}
-            className={`w-full text-left px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors ${
+            className={`w-full text-left px-4 py-4 md:py-3 border-b border-white/5 hover:bg-white/5 active:bg-white/10 transition-colors ${
               selectedIds.has(activity.id) ? 'bg-white/10' : ''
             }`}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
                 {selectionMode && (
-                  <div className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${
+                  <div className={`w-6 h-6 md:w-4 md:h-4 rounded border flex-shrink-0 flex items-center justify-center ${
                     selectedIds.has(activity.id) ? 'bg-white border-white' : 'border-white/30'
                   }`}>
                     {selectedIds.has(activity.id) && (
-                      <svg className="w-3 h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="w-4 h-4 md:w-3 md:h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                     )}
@@ -346,8 +371,8 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
                 )}
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-white truncate">{activity.name}</div>
-                  <div className="text-xs text-white/40 flex items-center gap-1.5">
-                    {formatDate(activity.date)} &middot; {activity.location}
+                  <div className="text-xs text-white/40 flex items-center gap-1.5 flex-wrap">
+                    <span>{formatDate(activity.date)} &middot; {activity.location}</span>
                     {activity.stravaUrl && (
                       <a
                         href={activity.stravaUrl}
@@ -356,7 +381,7 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
                         onClick={(e) => e.stopPropagation()}
                         className="text-[#FC5200] hover:underline font-medium"
                       >
-                        View on Strava
+                        Strava
                       </a>
                     )}
                   </div>

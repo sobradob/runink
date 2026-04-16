@@ -22,7 +22,8 @@ import { getDefaultTheme } from '@/features/theme/infrastructure/themeRepository
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
 import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
-import { SettingsPanel } from './SettingsPanel';
+import { SettingsPanel, SettingsActions } from './SettingsPanel';
+import { MobileSettingsSheet } from './MobileSettingsSheet';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
 import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer';
 
@@ -113,6 +114,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   const [placingIcon, setPlacingIcon] = useState<MarkerIcon | null>(null);
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const collapseSheetRef = useRef<(() => void) | null>(null);
 
   // Load track data (Strava tracks are in-memory, Garmin tracks fetched from files)
   const { track: singleTrack } = useTrack(mode === 'individual' ? activity?.id ?? null : null, stravaTracksMap);
@@ -237,31 +239,35 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   }, [theme, tracks, config, allMarkers, mode, activity, activities]);
 
   /** Render poster to PNG blob — used by both export and order flow.
-   *  When printDimensions is provided (ordering), renders at those dimensions instead of editor config. */
+   *  When printDimensions is provided (ordering), always use the canvas renderer for
+   *  full-resolution output. The capture renderer is only used for free PNG exports
+   *  where speed matters and preview-quality is acceptable. */
   const renderPoster = useCallback(async (printDimensions?: PosterDimensions): Promise<Blob> => {
+    // For paid prints: always use canvas renderer at full resolution
+    if (printDimensions) {
+      const opts = buildRenderOptions();
+      opts.config = { ...opts.config, dimensions: printDimensions };
+      return renderPosterToBlob(opts);
+    }
+
+    // For free exports: use capture renderer (fast, WYSIWYG from preview)
     if (USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
       try {
-        const dims = printDimensions || config.dimensions;
         return await capturePosterToBlob({
           element: previewContainerRef.current,
           map: mapInstanceRef.current,
-          dimensions: dims,
+          dimensions: config.dimensions,
         });
       } catch (e: any) {
         if (e.message === 'MAP_BLANK') {
           console.warn('[render] Capture renderer detected blank map, using canvas fallback');
-          // Fall through to canvas renderer below
         } else {
           throw e;
         }
       }
     }
-    // Fallback to Canvas-based renderer (creates own MapLibre instance with full tile loading)
-    const opts = buildRenderOptions();
-    if (printDimensions) {
-      opts.config = { ...opts.config, dimensions: printDimensions };
-    }
-    return renderPosterToBlob(opts);
+    // Fallback to canvas renderer
+    return renderPosterToBlob(buildRenderOptions());
   }, [buildRenderOptions, config.dimensions]);
 
   const handleExport = useCallback(async () => {
@@ -269,6 +275,10 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     setExporting(true);
 
     try {
+      // Collapse mobile sheet so the map is fully visible for capture
+      collapseSheetRef.current?.();
+      await new Promise((r) => setTimeout(r, 350));
+
       const blob = await renderPoster();
       const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.png`;
       downloadBlob(blob, filename);
@@ -281,26 +291,68 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
 
   const aspectRatio = config.dimensions.widthMm / config.dimensions.heightMm;
 
+  const orderButtonSlot = giftContext ? (
+    <GiftOrderButton
+      giftCode={giftContext.giftCode}
+      tierId={giftContext.tier}
+      posterConfig={{
+        ...config,
+        activityId: activity?.id,
+        activityIds: activities?.map(a => a.id),
+      }}
+      renderPoster={renderPoster}
+    />
+  ) : (
+    <OrderButton
+      posterConfig={{
+        ...config,
+        activityId: activity?.id,
+        activityIds: activities?.map(a => a.id),
+      }}
+      renderPoster={renderPoster}
+    />
+  );
+
+  const settingsPanelProps = {
+    config,
+    theme,
+    mode,
+    showKmMarkers,
+    showStartFinish,
+    placingIcon,
+    dimensionsLocked: !!giftContext,
+    onShowKmMarkersChange: setShowKmMarkers,
+    onShowStartFinishChange: setShowStartFinish,
+    onPlaceIcon: setPlacingIcon,
+    onRemoveMarker: handleRemoveMarker,
+    onConfigChange: handleConfigChange,
+    onThemeChange: handleThemeChange,
+    onExport: handleExport,
+    exporting,
+    orderButtonSlot,
+  } as const;
+
   return (
-    <div className="h-screen flex">
+    <div className="h-dvh flex flex-col md:flex-row">
       {/* Main area */}
-      <div className="flex-1 flex flex-col bg-[#0a0a0a]">
+      <div className="flex-1 flex flex-col bg-[#0a0a0a] min-h-0">
         {/* Top bar */}
-        <div className="h-12 flex items-center px-4 border-b border-white/10">
+        <div className="h-12 flex items-center px-4 border-b border-white/10 flex-shrink-0">
           <button
             onClick={onBack}
             className="text-white/40 hover:text-white text-sm flex items-center gap-2 transition-colors"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            Back to activities
+            <span className="hidden md:inline">Back to activities</span>
           </button>
 
           {/* Placing mode banner */}
           {placingIcon && (
             <div className="mx-auto flex items-center gap-2 text-sm text-yellow-400 animate-pulse">
-              <span>Click on the map to place marker</span>
+              <span className="hidden md:inline">Click on the map to place marker</span>
+              <span className="md:hidden text-xs">Tap map to place</span>
               <button
                 onClick={() => setPlacingIcon(null)}
                 className="text-xs px-2 py-0.5 rounded bg-white/10 text-white/60 hover:text-white"
@@ -310,13 +362,13 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
             </div>
           )}
 
-          <div className="ml-auto text-xs text-white/30">
+          <div className="ml-auto text-xs text-white/30 truncate max-w-[40%]">
             {mode === 'individual' ? activity?.name : `${activities?.length ?? 0} runs`}
           </div>
         </div>
 
         {/* Preview area */}
-        <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
+        <div className="flex-1 flex items-start md:items-center justify-center p-2 md:p-8 overflow-hidden">
           <div
             ref={previewContainerRef}
             className="relative shadow-2xl"
@@ -358,45 +410,27 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         </div>
       </div>
 
-      {/* Settings sidebar */}
-      <SettingsPanel
-        config={config}
-        theme={theme}
-        mode={mode}
-        showKmMarkers={showKmMarkers}
-        showStartFinish={showStartFinish}
-        placingIcon={placingIcon}
-        dimensionsLocked={!!giftContext}
-        onShowKmMarkersChange={setShowKmMarkers}
-        onShowStartFinishChange={setShowStartFinish}
-        onPlaceIcon={setPlacingIcon}
-        onRemoveMarker={handleRemoveMarker}
-        onConfigChange={handleConfigChange}
-        onThemeChange={handleThemeChange}
-        onExport={handleExport}
-        exporting={exporting}
-        orderButtonSlot={giftContext ? (
-          <GiftOrderButton
-            giftCode={giftContext.giftCode}
-            tierId={giftContext.tier}
-            posterConfig={{
-              ...config,
-              activityId: activity?.id,
-              activityIds: activities?.map(a => a.id),
-            }}
-            renderPoster={renderPoster}
-          />
-        ) : (
-          <OrderButton
-            posterConfig={{
-              ...config,
-              activityId: activity?.id,
-              activityIds: activities?.map(a => a.id),
-            }}
-            renderPoster={renderPoster}
-          />
-        )}
-      />
+      {/* Desktop: Settings sidebar */}
+      <div className="hidden md:block">
+        <SettingsPanel {...settingsPanelProps} />
+      </div>
+
+      {/* Mobile: Bottom sheet with settings */}
+      <div className="md:hidden">
+        <MobileSettingsSheet
+          collapseRef={collapseSheetRef}
+          actionButtons={
+            <SettingsActions
+              onExport={handleExport}
+              exporting={exporting}
+              orderButtonSlot={orderButtonSlot}
+              dimensions={config.dimensions}
+            />
+          }
+        >
+          <SettingsPanel {...settingsPanelProps} hideActions />
+        </MobileSettingsSheet>
+      </div>
     </div>
   );
 }

@@ -10,12 +10,12 @@ export function ThemeGallery({ selectedId, onSelect }: ThemeGalleryProps) {
   const themes = getAllThemes();
 
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory md:grid md:grid-cols-2 md:overflow-visible md:pb-0">
       {themes.map((theme) => (
         <button
           key={theme.id}
           onClick={() => onSelect(theme)}
-          className={`relative rounded-lg overflow-hidden border-2 transition-all ${
+          className={`snap-start flex-shrink-0 w-28 md:w-auto relative rounded-lg overflow-hidden border-2 transition-all ${
             selectedId === theme.id
               ? 'border-white ring-1 ring-white/30'
               : 'border-transparent hover:border-white/20'
@@ -23,7 +23,7 @@ export function ThemeGallery({ selectedId, onSelect }: ThemeGalleryProps) {
         >
           {/* Mini preview swatch */}
           <div
-            className="h-16 relative"
+            className="h-20 md:h-16 relative"
             style={{ backgroundColor: theme.colors.land }}
           >
             {/* Water stripe */}

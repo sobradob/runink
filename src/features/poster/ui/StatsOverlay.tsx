@@ -111,8 +111,8 @@ export function StatsOverlay({
         {showStats && (
           <div className="flex gap-6" style={{ color: secondaryColor }}>
             <StatItem label="Runs" value={String(activities.length)} color={textColor} />
-            <StatItem label="Total Distance" value={formatDistance(totalDistance)} color={textColor} />
-            <StatItem label="Total Time" value={formatDuration(totalDuration)} color={textColor} />
+            <StatItem label="Combined Distance" value={formatDistance(totalDistance)} color={textColor} />
+            <StatItem label="Combined Time" value={formatDuration(totalDuration)} color={textColor} />
           </div>
         )}
       </div>

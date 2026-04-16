@@ -166,7 +166,7 @@ export default function App() {
               <div className="mt-6 text-red-400/60 text-xs">{error}</div>
             )}
 
-            <div className="mt-12 grid grid-cols-3 gap-6 text-center">
+            <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6 text-center">
               <div>
                 <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>INDIVIDUAL</div>
                 <div className="text-xs text-white/30">Single run posters with stats, km markers, and theme</div>
@@ -218,26 +218,26 @@ export default function App() {
 
   // Main app: activity browser
   return (
-    <div className="h-screen flex flex-col">
-      <header className="h-14 flex items-center px-6 border-b border-white/10 flex-shrink-0">
+    <div className="h-dvh flex flex-col">
+      <header className="h-14 flex items-center px-4 md:px-6 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center gap-3">
           <h1 className="text-lg tracking-[0.15em] uppercase" style={{ fontFamily: 'var(--font-display)' }}>
             RunInk
           </h1>
-          <span className="text-xs text-white/30">Your runs, beautifully mapped</span>
+          <span className="text-xs text-white/30 hidden md:inline">Your runs, beautifully mapped</span>
         </div>
         <div className="ml-auto flex items-center gap-3">
           <a
             href="/privacy"
             onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/privacy'); setView({ type: 'privacy' }); }}
-            className="text-xs text-white/30 hover:text-white/50"
+            className="text-xs text-white/30 hover:text-white/50 hidden md:inline"
           >
             Privacy
           </a>
           <a
             href="/gift"
             onClick={(e) => { e.preventDefault(); setView({ type: 'gift' }); }}
-            className="text-xs text-white/30 hover:text-white/50"
+            className="text-xs text-white/30 hover:text-white/50 hidden md:inline"
           >
             🎁 Gift
           </a>
