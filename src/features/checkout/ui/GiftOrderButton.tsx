@@ -36,7 +36,7 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster }
       if (renderPoster) {
         setStatus('Rendering poster...');
         const printDims = PRINT_DIMENSIONS[tierId];
-        const blob = await renderPoster(printDims ? { ...printDims, label: tierId } : undefined);
+        const blob = await renderPoster(printDims ? { ...printDims, label: tierId, category: 'printable', tierId } : undefined);
 
         // Step 3: Upload poster PNG
         setStatus('Uploading artwork...');
