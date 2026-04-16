@@ -42,6 +42,10 @@ const PRODUCT_UIDS: Record<string, { inch: string; metric: string }> = {
     inch: 'frame_and_poster_product_frs_18x24-inch_frc_black_frm_aluminum_frp_w10xt22-mm_gt_plexiglass__pf_18x24-inch_pt_80-lb-cover-uncoated_cl_4-0_ct_none_prt_none_ver',
     metric: 'frame_and_poster_product_frs_400x600-mm_frc_black_frm_aluminum_frp_w10xt22-mm_gt_plexiglass__pf_400x600-mm_pt_200-gsm-uncoated_cl_4-0_ct_none_prt_none_ver',
   },
+  'a2-poster': {
+    inch: 'flat_product_pf_24x36-inch_pt_80-lb-cover-uncoated_cl_4-0_ct_none_prt_none_sft_none_set_none_ver',
+    metric: 'flat_product_pf_500x700-mm_pt_200-gsm-uncoated_cl_4-0_ct_none_prt_none_sft_none_set_none_ver',
+  },
   'a2-framed': {
     inch: 'frame_and_poster_product_frs_24x36-inch_frc_black_frm_aluminum_frp_w10xt22-mm_gt_plexiglass__pf_24x36-inch_pt_80-lb-cover-uncoated_cl_4-0_ct_none_prt_none_ver',
     metric: 'frame_and_poster_product_frs_500x700-mm_frc_black_frm_aluminum_frp_w10xt22-mm_gt_plexiglass__pf_500x700-mm_pt_200-gsm-uncoated_cl_4-0_ct_none_prt_none_ver',

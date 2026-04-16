@@ -1,24 +1,31 @@
 export type PosterMode = 'individual' | 'compilation';
 
+export type SizeCategory = 'printable' | 'digital-only';
+
 export interface PosterDimensions {
   label: string;
   widthMm: number;
   heightMm: number;
   dpi: number;
+  category: SizeCategory;
+  /** Maps to a Gelato print tier (e.g. 'a4-poster'). Undefined for digital-only. */
+  tierId?: string;
+  /** True if a framed variant exists for this size. */
+  frameable?: boolean;
 }
 
 export const POSTER_PRESETS: PosterDimensions[] = [
   // Print sizes — match Gelato product dimensions exactly
-  { label: '30x40cm', widthMm: 300, heightMm: 400, dpi: 300 },
-  { label: '40x60cm', widthMm: 400, heightMm: 600, dpi: 300 },
-  { label: '50x70cm', widthMm: 500, heightMm: 700, dpi: 300 },
-  // Landscape variants
-  { label: '40x30cm', widthMm: 400, heightMm: 300, dpi: 300 },
-  { label: '60x40cm', widthMm: 600, heightMm: 400, dpi: 300 },
-  // Square
-  { label: 'Square 40cm', widthMm: 400, heightMm: 400, dpi: 300 },
+  { label: '30x40cm', widthMm: 300, heightMm: 400, dpi: 300, category: 'printable', tierId: 'a4-poster' },
+  { label: '40x60cm', widthMm: 400, heightMm: 600, dpi: 300, category: 'printable', tierId: 'a3-poster', frameable: true },
+  { label: '50x70cm', widthMm: 500, heightMm: 700, dpi: 300, category: 'printable', tierId: 'a2-poster', frameable: true },
+  // Landscape variants (digital export only — no Gelato product)
+  { label: '40x30cm', widthMm: 400, heightMm: 300, dpi: 300, category: 'digital-only' },
+  { label: '60x40cm', widthMm: 600, heightMm: 400, dpi: 300, category: 'digital-only' },
+  // Square (digital export only — Gelato product deactivated)
+  { label: 'Square 40cm', widthMm: 400, heightMm: 400, dpi: 300, category: 'digital-only' },
   // Digital only
-  { label: 'Instagram', widthMm: 108, heightMm: 108, dpi: 300 },
+  { label: 'Instagram', widthMm: 108, heightMm: 108, dpi: 300, category: 'digital-only' },
 ];
 
 export interface PosterConfig {
