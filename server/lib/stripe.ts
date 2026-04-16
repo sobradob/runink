@@ -51,6 +51,15 @@ export const GIFT_TIERS: GiftTier[] = [
     priceCents: 5500,
   },
   {
+    id: 'a2-poster',
+    name: 'XL Poster',
+    description: '50×70cm / 24×36" matte print',
+    sizeMm: { width: 500, height: 700 },
+    framed: false,
+    priceId: process.env.STRIPE_PRICE_A2 || '',
+    priceCents: 4500,
+  },
+  {
     id: 'a2-framed',
     name: 'XL Framed',
     description: '50×70cm / 24×36" in black aluminium frame',
