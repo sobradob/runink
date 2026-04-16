@@ -18,6 +18,11 @@ interface CaptureOptions {
  * Strategy: capture the preview as-is (tiles already loaded at preview resolution)
  * using html-to-image's pixelRatio to scale up to print dimensions. This avoids
  * resizing the container and needing to re-load tiles at a higher zoom level.
+ *
+ * Critical: html-to-image serializes WebGL canvases via canvas.toDataURL(), but
+ * the WebGL buffer can be cleared between our idle check and the actual serialization.
+ * To prevent blank map exports, we pre-snapshot the MapLibre canvas to a static <img>
+ * before html-to-image runs.
  */
 export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
   const { element, map, dimensions } = opts;
@@ -56,42 +61,50 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
     new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
   ]);
 
-  // Sanity check: verify the map canvas isn't blank
-  try {
-    const mapCanvas = map.getCanvas();
-    const gl = mapCanvas.getContext('webgl2') || mapCanvas.getContext('webgl');
-    if (gl) {
-      const pixel = new Uint8Array(4);
-      // Sample a pixel near the center of the canvas
-      gl.readPixels(
-        Math.floor(mapCanvas.width / 2),
-        Math.floor(mapCanvas.height / 2),
-        1, 1,
-        gl.RGBA, gl.UNSIGNED_BYTE, pixel,
-      );
-      if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
-        console.warn('[capture] Map canvas center pixel is blank — falling back');
-        throw new Error('MAP_BLANK');
-      }
-    }
-  } catch (e: any) {
-    if (e.message === 'MAP_BLANK') throw e;
-    // WebGL read failed — continue anyway, might still work
-    console.warn('[capture] Could not verify map canvas:', e.message);
+  // Snapshot the WebGL canvas IMMEDIATELY while the buffer is guaranteed valid.
+  // html-to-image calls canvas.toDataURL() later during DOM cloning, but by then
+  // MapLibre may have cleared the WebGL buffer — causing a blank map in the export.
+  const mapCanvas = map.getCanvas();
+  const dataUrl = mapCanvas.toDataURL('image/png');
+
+  if (!dataUrl || dataUrl === 'data:,') {
+    console.warn('[capture] Map canvas snapshot is blank — falling back');
+    throw new Error('MAP_BLANK');
   }
 
-  // Capture the DOM at high resolution using pixelRatio
-  const blob = await toBlob(element, {
-    width: previewWidth,
-    height: element.offsetHeight,
-    pixelRatio,
-    cacheBust: true,
-    filter: (node: HTMLElement) => {
-      if (node.dataset?.exportHide === 'true') return false;
-      return true;
-    },
-  });
+  // Swap the live WebGL canvas with a static image so html-to-image
+  // serializes a stable bitmap instead of a volatile WebGL context.
+  const img = document.createElement('img');
+  img.src = dataUrl;
+  // Match the CSS dimensions of the canvas (not pixel dimensions — pixelRatio handles upscaling)
+  img.style.width = mapCanvas.style.width || `${mapCanvas.clientWidth}px`;
+  img.style.height = mapCanvas.style.height || `${mapCanvas.clientHeight}px`;
+  img.style.position = 'absolute';
+  img.style.top = '0';
+  img.style.left = '0';
 
-  if (!blob) throw new Error('html-to-image returned null blob');
-  return blob;
+  const canvasContainer = mapCanvas.parentElement!;
+  mapCanvas.style.display = 'none';
+  canvasContainer.appendChild(img);
+
+  try {
+    // Capture the DOM at high resolution using pixelRatio
+    const blob = await toBlob(element, {
+      width: previewWidth,
+      height: element.offsetHeight,
+      pixelRatio,
+      cacheBust: true,
+      filter: (node: HTMLElement) => {
+        if (node.dataset?.exportHide === 'true') return false;
+        return true;
+      },
+    });
+
+    if (!blob) throw new Error('html-to-image returned null blob');
+    return blob;
+  } finally {
+    // Restore the live canvas
+    mapCanvas.style.display = '';
+    img.remove();
+  }
 }

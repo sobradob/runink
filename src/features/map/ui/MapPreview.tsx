@@ -133,28 +133,38 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
     const map = mapRef.current;
     if (!map || !readyRef.current) return;
 
-    // setStyle triggers an async reload — re-add our layers once it's done.
-    // MapLibre v5 fires 'style.load' but it can be unreliable, so we also
-    // listen for 'idle' as a fallback and use a flag to run only once.
+    // setStyle triggers a full async reload — all custom sources/layers are removed.
+    // We must re-add them after the new style is ready. MapLibre v5's 'style.load'
+    // can be unreliable, so we use multiple fallbacks.
     let applied = false;
     const reapply = () => {
       if (applied) return;
-      applied = true;
-      addRunPathLayers(map, theme);
-      updateRunPaths(map, tracksRef.current);
-      updateRunPathColors(map, theme, compilationRef.current);
-      applyLayerVisibility(map, layersRef.current);
-      syncHtmlMarkers(map, markersRef.current, theme, htmlMarkersRef);
+      // Verify the style is actually ready by checking if we can add a source
+      try {
+        addRunPathLayers(map, theme);
+        updateRunPaths(map, tracksRef.current);
+        updateRunPathColors(map, theme, compilationRef.current);
+        applyLayerVisibility(map, layersRef.current);
+        syncHtmlMarkers(map, markersRef.current, theme, htmlMarkersRef);
+        applied = true;
+      } catch (e) {
+        // Style not ready yet — will retry via fallback
+        console.warn('[MapPreview] reapply failed, will retry:', (e as Error).message);
+      }
     };
 
     map.setStyle(buildMapStyle(theme));
     map.once('style.load', reapply);
-    // Fallback: if style.load doesn't fire within 2s, force reapply on idle
-    const fallback = setTimeout(() => {
+    // Fallback 1: retry on idle if style.load didn't work
+    const fallback1 = setTimeout(() => {
       if (!applied) map.once('idle', reapply);
+    }, 500);
+    // Fallback 2: force retry after 2s
+    const fallback2 = setTimeout(() => {
+      if (!applied) reapply();
     }, 2000);
 
-    return () => clearTimeout(fallback);
+    return () => { clearTimeout(fallback1); clearTimeout(fallback2); };
   }, [theme.id]);
 
   // Update tracks — only fitBounds when tracks actually change
