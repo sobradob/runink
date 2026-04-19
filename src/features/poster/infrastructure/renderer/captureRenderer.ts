@@ -37,8 +37,31 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
   } catch { /* use default */ }
 
   const maxTarget = Math.max(targetWidth, targetHeight);
-  const cappedScale = Math.min(1, maxSide / maxTarget);
+  const sideScale = Math.min(1, maxSide / maxTarget);
+
+  // iOS Safari caps 2D canvas area at ~16.7M pixels (268MB / 16 bytes per RGBA).
+  // html-to-image's output canvas = (width × pixelRatio) × (height × pixelRatio).
+  // Exceeding the area limit makes toBlob silently return a blank/corrupt PNG —
+  // preview looks fine but the downloaded file fails to render. We cap below the
+  // threshold to stay safe across iOS, older Android, and low-memory devices.
+  // The side-length cap alone is insufficient: on modern iPhones MAX_TEXTURE_SIZE
+  // is 16384, so a 50×70cm @ 300 DPI (5906×8268 = 48.8M px) would slip through.
+  const MAX_CANVAS_AREA = 16_000_000;
+  const targetArea = targetWidth * targetHeight;
+  const areaScale = targetArea > MAX_CANVAS_AREA
+    ? Math.sqrt(MAX_CANVAS_AREA / targetArea)
+    : 1;
+
+  const cappedScale = Math.min(1, sideScale, areaScale);
   const outputWidth = Math.round(targetWidth * cappedScale);
+
+  if (cappedScale < 1) {
+    console.info(
+      `[capture] Downscaling export: ${targetWidth}×${targetHeight} → ` +
+      `${outputWidth}×${Math.round(targetHeight * cappedScale)} ` +
+      `(scale=${cappedScale.toFixed(3)}, reason=${areaScale < sideScale ? 'area' : 'side'})`
+    );
+  }
 
   // Compute pixelRatio to scale the preview up to print resolution
   const previewWidth = element.offsetWidth;
