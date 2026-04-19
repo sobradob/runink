@@ -142,15 +142,20 @@ const GPS_ACTIVITY_TYPES = new Set([
 ]);
 
 /**
- * Fetch all GPS-based activities from Strava, paginating through all results.
+ * Fetch GPS-based activities from Strava, paginating until exhausted or maxPages
+ * reached. Pass maxPages=1 for a fast first-page load (up to 200 most recent).
  * Returns activities with their summary_polyline for GPS track rendering.
  */
-export async function fetchAllGpsActivities(accessToken: string): Promise<StravaActivity[]> {
+export async function fetchAllGpsActivities(
+  accessToken: string,
+  options: { maxPages?: number } = {}
+): Promise<StravaActivity[]> {
+  const { maxPages = Infinity } = options;
   const allActivities: StravaActivity[] = [];
   let page = 1;
   const perPage = 200; // Max allowed by Strava
 
-  while (true) {
+  while (page <= maxPages) {
     const url = `${STRAVA_API_BASE}/athlete/activities?page=${page}&per_page=${perPage}`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
