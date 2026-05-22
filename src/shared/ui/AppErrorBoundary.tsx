@@ -17,6 +17,7 @@
  *   - SSR not applicable here (Vite SPA).
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportError } from '@/shared/diagnostics/errorReporter';
 
 interface Props {
   children: ReactNode;
@@ -35,10 +36,16 @@ export class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Print to console for the next person opening DevTools. We don't
-    // ship Sentry yet (see tasks/todo.md QA backlog) so this is the
-    // only signal that survives a crash.
+    // Push to Mixpanel as `client_error { error_source: 'boundary' }`
+    // so a React render crash surfaces in dashboards alongside every
+    // other error. componentStack goes in `extra` rather than
+    // overwriting the regular stack — both are useful when
+    // diagnosing.
     console.error('[AppErrorBoundary]', error, info.componentStack);
+    reportError(error, {
+      source: 'boundary',
+      extra: { component_stack: (info.componentStack ?? '').slice(0, 1500) },
+    });
     this.setState({ componentStack: info.componentStack ?? null });
   }
 

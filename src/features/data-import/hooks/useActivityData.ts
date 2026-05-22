@@ -9,6 +9,7 @@ import {
   type StravaAuthStatus,
 } from '../services/stravaLoader';
 import { loadActivityIndex, loadTrack as loadDemoTrack } from '../services/garminLoader';
+import { reportError } from '@/shared/diagnostics/errorReporter';
 
 const USE_DEMO_DATA = import.meta.env.VITE_USE_DEMO_DATA === 'true';
 
@@ -101,8 +102,14 @@ export function useActivityIndex() {
               } else {
                 setError('Failed to load Strava activities: ' + e.message);
               }
+              reportError(e, {
+                source: 'strava',
+                status: e.status,
+                code: e.code,
+              });
             } else {
               setError('Failed to load Strava activities: ' + (e as Error)?.message);
+              reportError(e, { source: 'strava' });
             }
           } finally {
             setStravaLoading(false);

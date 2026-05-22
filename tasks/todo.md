@@ -31,7 +31,8 @@
 - [x] **CI smoke render workflow** — `.github/workflows/smoke-render.yml`: builds Docker image, boots against ephemeral Postgres, runs `scripts/smoke-render.ts` inside the container, asserts >50 KB PNG. Path-filtered so docs-only PRs don't burn 5-min Docker builds.
 - [ ] Add a visual regression check: screenshot fixed-payload render, diff against committed golden PNG with `pixelmatch` at 1% threshold. Extend the smoke-render workflow with an additional assertion.
 - [x] **Web fonts served via `@font-face` with `font-display: block`** — already bundled via `@fontsource/*`, declaration in `src/styles/index.css`. Combined with `document.fonts.ready` await in InternalRenderPage so prints never capture fallback glyphs.
-- [ ] Add Sentry (or equivalent) on both client and server — capture `render.failed` events with `requestId`. The client already plumbs the requestId through `RenderError`; just needs a sink.
+- [x] **Client-side error reporting via Mixpanel** — `src/shared/diagnostics/errorReporter.ts` ships every error as a `client_error` event with build SHA, requestId, viewport, UA. Hooked into AppErrorBoundary, window error + unhandledrejection handlers, RenderError catches, StravaLoaderError catches. See `tasks/lessons.md` for the event schema.
+- [ ] **(Future)** Add Sentry on top of Mixpanel when volume justifies it — Mixpanel is fine for low volume but lacks stack grouping, source maps, and issue-workflow features. Don't migrate; layer.
 - [ ] Build an admin "re-render this order" endpoint. Needs `poster_config` JSON to be persisted on the order row (already is) PLUS the resolved GPS tracks (not yet — would need to refetch from Strava at re-render time).
 - [x] **Long-press diagnostic overlay** — `DiagnosticOverlay` on the RunInk logo (600 ms). Build SHA inlined into bundle via vite `define`, last render requestId via `shared/diagnostics/renderTelemetry` singleton, tap-to-copy report.
 

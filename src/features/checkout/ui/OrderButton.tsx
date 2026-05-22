@@ -3,6 +3,7 @@ import { createDirectOrder, getUploadUrl, uploadPosterPng, RenderError } from '.
 import { FRAMED_TIER, getTier, PRINT_DIMENSIONS } from './tiers';
 import { COMING_SOON, ComingSoonPopup } from './ComingSoon';
 import { RenderProgress } from '@/shared/ui/RenderProgress';
+import { reportError } from '@/shared/diagnostics/errorReporter';
 import type { PosterDimensions } from '@/types/poster';
 
 interface OrderButtonProps {
@@ -119,6 +120,12 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
         setErrMsg(e.message || 'Server render failed');
         setErrRequestId(e.requestId ?? null);
         setErrRetryable(e.retryable);
+        reportError(e, {
+          source: 'render',
+          requestId: e.requestId,
+          status: e.status,
+          retryable: e.retryable,
+        });
       } else {
         const msg = (e as Error)?.message || 'Unknown error';
         setErrMsg(msg);
@@ -126,6 +133,7 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
         // Order-creation errors and legacy client-render errors get a
         // manual retry button — failing now means we haven't taken payment.
         setErrRetryable(true);
+        reportError(e, { source: 'order', retryable: true });
       }
       setStatus('');
       setLoading(false);

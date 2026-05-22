@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createGiftOrder, getUploadUrl, uploadPosterPng, clearGiftContext, RenderError } from '../services/checkoutApi';
 import { GIFT_TIERS_CLIENT, PRINT_DIMENSIONS } from './tiers';
 import { RenderProgress } from '@/shared/ui/RenderProgress';
+import { reportError } from '@/shared/diagnostics/errorReporter';
 import type { PosterDimensions } from '@/types/poster';
 
 interface GiftOrderButtonProps {
@@ -91,10 +92,18 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster, 
         setErrMsg(e.message || 'Server render failed');
         setErrRequestId(e.requestId ?? null);
         setErrRetryable(e.retryable);
+        reportError(e, {
+          source: 'render',
+          requestId: e.requestId,
+          status: e.status,
+          retryable: e.retryable,
+          extra: { flow: 'gift' },
+        });
       } else {
         setErrMsg((e as Error)?.message || 'Failed to create order');
         setErrRequestId(null);
         setErrRetryable(true);
+        reportError(e, { source: 'order', retryable: true, extra: { flow: 'gift' } });
       }
       setStatus('');
       setLoading(false);

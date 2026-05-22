@@ -1,5 +1,35 @@
 # Lessons Learned
 
+## 2026-05-22: Mixpanel `client_error` event schema
+**Context:** Errors flow through `src/shared/diagnostics/errorReporter.ts`'s `reportError(err, ctx)` and land in Mixpanel as `client_error` events. Use this schema when building Mixpanel dashboards or funnels — don't reverse-engineer it from the code.
+
+**Property reference:**
+| Property | Type | Notes |
+|---|---|---|
+| `error_name` | string | e.g. `RenderError`, `StravaLoaderError`, `TypeError` |
+| `error_message` | string | Truncated to 500 chars |
+| `error_source` | enum | `boundary` (React crash) / `unhandled_promise` / `window_error` / `render` / `strava` / `order` / `other` |
+| `error_code` | string \| null | Typed code where present (e.g. `STRAVA_MISSING_SCOPE`) |
+| `http_status` | number \| null | The server status when applicable |
+| `request_id` | string \| null | Server-side correlation — grep DO logs for this |
+| `retryable` | boolean \| null | Only meaningful on `error_source=render` |
+| `build_sha` | string | Inlined at vite build time |
+| `build_time` | string | Inlined at vite build time |
+| `env` | string | `dev` / `prod` |
+| `url` | string | pathname + search |
+| `viewport` | string | `WxH@dpr` |
+| `user_agent` | string | Full UA |
+| `online` | bool | `navigator.onLine` at capture |
+| `stack` | string | Truncated to 1500 chars |
+
+**Useful funnels to build:**
+- "Hit error → reconnected → succeeded" (does the amber Strava banner work?)
+- "Hit render error → retried → succeeded" (is auto-retry sufficient, or do users have to manually retry?)
+- "Hit error" segmented by `build_sha` (did the last deploy introduce a regression?)
+- "Hit error" segmented by `user_agent` substring "iPhone" vs "Android" vs desktop (which platform is brittlest?)
+
+**Dedup behaviour:** Identical errors (same source + name + message + first stack line) within 30 s are suppressed locally. The first occurrence IS sent; later ones increment an in-memory counter that nothing currently reads. If you need accurate "fired N times" counts during a burst, query Mixpanel's event count directly — don't rely on a per-event counter property.
+
 ## 2026-05-22: Strava OAuth approval_prompt=auto is a foot-gun for required scopes
 **Failure mode:** First real customer connected Strava, name showed in header, then every activities fetch returned 500 (server got 401 from Strava). Strava had issued a token without `activity:read_all` because the user unchecked the "View data about your activities" box on the consent screen. With `approval_prompt=auto` the user can never re-grant — Strava silently reissues the prior narrower scope on every subsequent connect.
 **Detection:** Production logs showed `Strava API error: 401` ~80 ms after every fetch. The fast turnaround (not a timeout) plus the user being freshly-connected pointed at scope rather than expiry. Confirmed by reading Strava's docs about `approval_prompt`.
