@@ -277,3 +277,49 @@ export async function verifyChromium(): Promise<true> {
     throw err;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lightweight health probe — for uptime monitors hitting on a 1–5 min
+// cadence we don't want to launch a fresh Chromium context every call.
+// Instead, cache the last successful verifyChromium result for 60 s and
+// otherwise just check the browser process is still connected.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HEALTH_CACHE_MS = 60_000;
+let lastHealthCheck = 0;
+let lastHealthOk = false;
+
+/**
+ * Cheap health probe suitable for high-cadence uptime monitoring.
+ *
+ * Behaviour:
+ *   - Returns true if a full verifyChromium succeeded within the last 60 s
+ *     AND the browser is still connected.
+ *   - Otherwise, runs a full verifyChromium and caches the result.
+ *
+ * On a 1-min uptime probe this means we do the expensive check once a
+ * minute and serve a sub-millisecond response in between. If the browser
+ * disconnects (OOM, crash) the `isConnected` flip causes the next call
+ * to refresh — we never serve a stale "ok" against a dead Chromium.
+ */
+export async function healthCheck(): Promise<{ ok: boolean; cached: boolean; durationMs: number }> {
+  const now = Date.now();
+  const started = now;
+  const browser = browserPromise ? await browserPromise.catch(() => null) : null;
+  const connected = browser?.isConnected() === true;
+
+  if (lastHealthOk && connected && (now - lastHealthCheck) < HEALTH_CACHE_MS) {
+    return { ok: true, cached: true, durationMs: Date.now() - started };
+  }
+
+  try {
+    await verifyChromium();
+    lastHealthCheck = Date.now();
+    lastHealthOk = true;
+    return { ok: true, cached: false, durationMs: Date.now() - started };
+  } catch {
+    lastHealthOk = false;
+    lastHealthCheck = Date.now();
+    return { ok: false, cached: false, durationMs: Date.now() - started };
+  }
+}

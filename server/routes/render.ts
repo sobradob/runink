@@ -25,7 +25,7 @@ import {
   renderPoster,
   consumePayload,
   storePayload,
-  verifyChromium,
+  healthCheck,
   RenderBusyError,
   type RenderPayload,
 } from '../lib/poster-renderer.js';
@@ -104,17 +104,12 @@ renderRouter.get('/payload/:token', payloadLimiter, (req, res) => {
  * confidence later.
  */
 renderRouter.get('/health', async (_req, res) => {
-  const started = Date.now();
-  try {
-    await verifyChromium();
-    res.json({ ok: true, durationMs: Date.now() - started });
-  } catch (err) {
-    res.status(503).json({
-      ok: false,
-      error: (err as Error).message,
-      durationMs: Date.now() - started,
-    });
-  }
+  // Uses the cached healthCheck (60 s freshness) so a 1-min uptime probe
+  // doesn't launch a fresh Chromium context every call. The cache is
+  // invalidated automatically if browser.isConnected() flips false, so
+  // we never serve a stale "ok" against a dead Chromium.
+  const result = await healthCheck();
+  res.status(result.ok ? 200 : 503).json(result);
 });
 
 if (SMOKE_ENDPOINTS_ENABLED) {

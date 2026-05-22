@@ -1,18 +1,35 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import type { ActivitySummary } from '@/types/activity';
 import { useActivityIndex } from '@/features/data-import/hooks/useActivityData';
 import { ActivityBrowser } from '@/features/data-import/ui/ActivityBrowser';
 import { StravaConnectButton } from '@/features/data-import/ui/StravaConnectButton';
 import { PosterEditor } from '@/features/poster/ui/PosterEditor';
-import { GiftPurchase } from '@/features/checkout/ui/GiftPurchase';
-import { RedeemPage } from '@/features/checkout/ui/RedeemPage';
-import { PrivacyPolicy } from '@/features/legal/PrivacyPolicy';
-import { OrderSuccessPage } from '@/features/checkout/ui/OrderSuccessPage';
-import { OrderStatusPage } from '@/features/checkout/ui/OrderStatusPage';
-import { InternalRenderPage } from '@/features/poster/render/InternalRenderPage';
 import { DiagnosticOverlay, useLongPress } from '@/features/diagnostics/DiagnosticOverlay';
 import { OfflineToast } from '@/features/diagnostics/OfflineToast';
 import { getGiftContext, persistGiftContext, type GiftContext } from '@/features/checkout/services/checkoutApi';
+
+// Lazy-loaded routes — these are visited by a small fraction of users
+// each session, and pulling them into the initial bundle adds bytes
+// every mobile user pays on first paint. Each lazy() call becomes its
+// own JS chunk that Vite emits at build time; the route only loads
+// when the user actually navigates to it. Suspense boundary below
+// shows a tiny spinner during the ~100 ms chunk fetch.
+const GiftPurchase = lazy(() => import('@/features/checkout/ui/GiftPurchase').then(m => ({ default: m.GiftPurchase })));
+const RedeemPage = lazy(() => import('@/features/checkout/ui/RedeemPage').then(m => ({ default: m.RedeemPage })));
+const PrivacyPolicy = lazy(() => import('@/features/legal/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
+const OrderSuccessPage = lazy(() => import('@/features/checkout/ui/OrderSuccessPage').then(m => ({ default: m.OrderSuccessPage })));
+const OrderStatusPage = lazy(() => import('@/features/checkout/ui/OrderStatusPage').then(m => ({ default: m.OrderStatusPage })));
+const InternalRenderPage = lazy(() => import('@/features/poster/render/InternalRenderPage').then(m => ({ default: m.InternalRenderPage })));
+
+// Minimal fallback for lazy routes. Matches the app's existing loading
+// idiom so it doesn't look out of place during the brief chunk fetch.
+function RouteFallback() {
+  return (
+    <div className="min-h-dvh bg-[#0a0a0a] flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-white/15 border-t-white/60 rounded-full animate-spin" />
+    </div>
+  );
+}
 
 /** Internal render surface for server-side Playwright poster capture.
  *  Checked before the main app boots so we bypass Strava auth, the activity
@@ -64,15 +81,25 @@ export default function App() {
   const logoLongPress = useLongPress(() => setDiagnosticsOpen(true));
 
   // Playwright-driven render route — short-circuits the main shell so the
-  // screenshot is a pristine poster and not a half-rendered app.
+  // screenshot is a pristine poster and not a half-rendered app. Wrapped
+  // in Suspense because InternalRenderPage is a lazy chunk; Playwright's
+  // `await page.waitForFunction('window.__POSTER_READY__')` already gates
+  // the screenshot, so the chunk fetch delay (~100 ms) is hidden inside
+  // the existing wait — no new race.
   const internalToken = getInternalRenderToken();
   if (internalToken) {
-    return <InternalRenderPage token={internalToken} />;
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <InternalRenderPage token={internalToken} />
+      </Suspense>
+    );
   }
 
   return (
     <>
-      <MainApp logoLongPress={logoLongPress} />
+      <Suspense fallback={<RouteFallback />}>
+        <MainApp logoLongPress={logoLongPress} />
+      </Suspense>
       <DiagnosticOverlay open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
       <OfflineToast />
     </>
