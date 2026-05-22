@@ -10,6 +10,7 @@ import { PrivacyPolicy } from '@/features/legal/PrivacyPolicy';
 import { OrderSuccessPage } from '@/features/checkout/ui/OrderSuccessPage';
 import { OrderStatusPage } from '@/features/checkout/ui/OrderStatusPage';
 import { InternalRenderPage } from '@/features/poster/render/InternalRenderPage';
+import { DiagnosticOverlay, useLongPress } from '@/features/diagnostics/DiagnosticOverlay';
 import { getGiftContext, persistGiftContext, type GiftContext } from '@/features/checkout/services/checkoutApi';
 
 /** Internal render surface for server-side Playwright poster capture.
@@ -55,16 +56,33 @@ function getInitialView(): View {
 }
 
 export default function App() {
+  // Diagnostics state is at the App level so the overlay is reachable from
+  // every view (browse, editor, redeem, success, etc.) without threading
+  // a context through. Long-press handler is created once and shared.
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const logoLongPress = useLongPress(() => setDiagnosticsOpen(true));
+
   // Playwright-driven render route — short-circuits the main shell so the
   // screenshot is a pristine poster and not a half-rendered app.
   const internalToken = getInternalRenderToken();
   if (internalToken) {
     return <InternalRenderPage token={internalToken} />;
   }
-  return <MainApp />;
+
+  return (
+    <>
+      <MainApp logoLongPress={logoLongPress} />
+      <DiagnosticOverlay open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+    </>
+  );
 }
 
-function MainApp() {
+interface MainAppProps {
+  /** Spread onto a logo element to make long-press open the diagnostic overlay. */
+  logoLongPress: ReturnType<typeof useLongPress>;
+}
+
+function MainApp({ logoLongPress }: MainAppProps) {
   const {
     index, loading, error,
     stravaAuth, stravaLoading, stravaTracksMap,
@@ -167,8 +185,9 @@ function MainApp() {
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-lg px-8">
             <h1
-              className="text-4xl tracking-[0.2em] uppercase mb-3"
+              className="text-4xl tracking-[0.2em] uppercase mb-3 select-none"
               style={{ fontFamily: 'var(--font-display)' }}
+              {...logoLongPress}
             >
               RunInk
             </h1>
@@ -244,7 +263,11 @@ function MainApp() {
     <div className="h-dvh flex flex-col">
       <header className="h-14 flex items-center px-4 md:px-6 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg tracking-[0.15em] uppercase" style={{ fontFamily: 'var(--font-display)' }}>
+          <h1
+            className="text-lg tracking-[0.15em] uppercase select-none"
+            style={{ fontFamily: 'var(--font-display)' }}
+            {...logoLongPress}
+          >
             RunInk
           </h1>
           <span className="text-xs text-white/30 hidden md:inline">Your runs, beautifully mapped</span>

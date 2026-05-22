@@ -1,0 +1,150 @@
+name: Smoke render
+
+# Builds the production Docker image, boots it against an ephemeral
+# Postgres, and runs scripts/smoke-render.ts inside the container.
+# Catches "I just broke the render path" before it hits DigitalOcean.
+#
+# Filtered to relevant paths so a docs-only change doesn't burn a 5-min
+# Docker build. Falls through to `if: always()` log uploads on failure so
+# we have something to grep when CI goes red.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'server/**'
+      - 'scripts/smoke-render.ts'
+      - 'src/features/poster/**'
+      - 'src/features/map/**'
+      - 'src/styles/**'
+      - 'src/App.tsx'
+      - 'src/main.tsx'
+      - '.github/workflows/smoke-render.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'server/**'
+      - 'scripts/smoke-render.ts'
+      - 'src/features/poster/**'
+      - 'src/features/map/**'
+      - 'src/styles/**'
+      - 'src/App.tsx'
+      - 'src/main.tsx'
+      - '.github/workflows/smoke-render.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # Stand up a throwaway Postgres so initDb() can connect.
+      # The render path itself never reads from this DB — but the server
+      # exits 1 if initDb fails, so we need something on the wire.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: smoke
+          POSTGRES_USER: postgres
+          POSTGRES_DB: runink_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (with GHA cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: runink:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start runink container
+        run: |
+          # Host networking so the container reaches the Postgres service
+          # on localhost:5432, and the smoke script (also run inside the
+          # container) reaches the server on localhost:8099.
+          # NODE_ENV=test (not 'production') so the smoke endpoints
+          # unlock; ENABLE_SMOKE_ENDPOINTS is the second required gate.
+          docker run -d --name runink-smoke \
+            --network host \
+            -e NODE_ENV=test \
+            -e ENABLE_SMOKE_ENDPOINTS=true \
+            -e PORT=8099 \
+            -e DATABASE_URL=postgres://postgres:smoke@localhost:5432/runink_smoke \
+            -e SESSION_SECRET=ci-smoke-secret \
+            -e ADMIN_SECRET=ci-smoke-secret \
+            -e STRAVA_REDIRECT_URI=http://localhost:8099/auth/strava/callback \
+            --entrypoint node \
+            runink:smoke --import tsx server/index.ts
+
+      - name: Wait for render health
+        run: |
+          # Health endpoint actually launches Chromium, so a 200 here is
+          # a stronger signal than /api/health (which only confirms the
+          # process is listening). Allow up to 90s — first Chromium
+          # launch can be slow on a cold runner.
+          for i in $(seq 1 45); do
+            body=$(curl -fsS http://localhost:8099/api/render/health 2>/dev/null || echo '')
+            if echo "$body" | grep -q '"ok":true'; then
+              echo "Ready after ${i} attempts: $body"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Container never reached ready state"
+          docker logs runink-smoke
+          exit 1
+
+      - name: Run smoke render (inside container)
+        run: docker exec -e PORT=8099 runink-smoke node --import tsx scripts/smoke-render.ts
+
+      - name: Copy PNG out of container
+        run: docker cp runink-smoke:/app/smoke-render.png ./smoke-render.png
+
+      - name: Assert PNG non-trivial (> 50 KB)
+        run: |
+          bytes=$(stat -c%s smoke-render.png)
+          echo "PNG size: ${bytes} bytes"
+          # A blank-canvas / all-background-pixels PNG is well under
+          # 20 KB. A real rendered poster with map tiles is typically
+          # 200 KB+. 50 KB is the conservative floor — below this the
+          # render almost certainly silently failed.
+          if [ "${bytes}" -lt 50000 ]; then
+            echo "::error::smoke-render.png is suspiciously small (${bytes} bytes); render likely failed silently"
+            exit 1
+          fi
+
+      - name: Upload PNG for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-render-png
+          path: smoke-render.png
+          if-no-files-found: ignore
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs runink-smoke || true
+
+      - name: Stop container
+        if: always()
+        run: docker stop runink-smoke || true

@@ -119,6 +119,8 @@ export async function uploadPosterPng(uploadUrl: string, method: string, blob: B
   }
 }
 
+import { recordRenderRequestId } from '@/shared/diagnostics/renderTelemetry';
+
 /**
  * Error thrown by renderPosterOnServer. Carries the server's requestId
  * (when available) so user-facing error UI can show it for support
@@ -198,10 +200,12 @@ export async function renderPosterOnServer(
       });
       if (res.ok) {
         const body = await res.json() as { imageUrl: string; requestId?: string };
+        recordRenderRequestId(body.requestId);
         return body;
       }
       const errBody = await res.json().catch(() => ({} as { error?: string; requestId?: string }));
       const requestId = errBody.requestId ?? null;
+      recordRenderRequestId(requestId);
       const retryable = res.status === 503 || res.status === 429 || res.status === 408;
       lastErr = new RenderError(errBody.error || `Render failed (HTTP ${res.status})`, {
         requestId, status: res.status, retryable,
