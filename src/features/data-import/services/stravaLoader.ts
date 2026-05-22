@@ -92,6 +92,30 @@ async function fetchWithRetry(
   throw lastError ?? new Error('Request failed');
 }
 
+/**
+ * Typed error for Strava-specific failure modes the UI needs to react to
+ * (rather than showing a generic "HTTP 500" message). `code` mirrors the
+ * server's `code` field — see server/routes/activities.ts.
+ */
+export class StravaLoaderError extends Error {
+  readonly code: string | null;
+  readonly status: number;
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = 'StravaLoaderError';
+    this.status = status;
+    this.code = code;
+  }
+  /** True iff the user's token doesn't carry activity:read_all — recoverable by reconnecting with the box ticked. */
+  isMissingScope(): boolean {
+    return this.code === 'STRAVA_MISSING_SCOPE';
+  }
+  /** True iff the Strava session has been revoked or otherwise invalidated. */
+  isSessionInvalid(): boolean {
+    return this.code === 'STRAVA_SESSION_INVALID' || this.status === 401;
+  }
+}
+
 export async function loadStravaActivities(
   optionsOrRefresh: LoadOptions | boolean = {},
 ): Promise<StravaActivitiesResponse> {
@@ -108,8 +132,18 @@ export async function loadStravaActivities(
   const res = await fetchWithRetry(url, { externalSignal: options.signal });
 
   if (!res.ok) {
-    if (res.status === 401) throw new Error('Not connected to Strava');
-    throw new Error(`Failed to load Strava activities: ${res.status}`);
+    // Try to parse the typed error envelope from the server. The activities
+    // route returns 403 + { code: 'STRAVA_MISSING_SCOPE' } when the user
+    // authorized without the activities checkbox — the UI uses that to
+    // show a targeted reconnect prompt instead of a generic error.
+    const body = await res.json().catch(() => ({}));
+    const code = typeof body?.code === 'string' ? body.code : null;
+    const message = typeof body?.error === 'string'
+      ? body.error
+      : res.status === 401
+        ? 'Not connected to Strava'
+        : `Failed to load Strava activities: ${res.status}`;
+    throw new StravaLoaderError(message, res.status, code);
   }
 
   return res.json();

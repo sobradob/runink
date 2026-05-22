@@ -5,11 +5,17 @@ import {
   loadStravaActivities,
   initiateStravaAuth,
   disconnectStrava,
+  StravaLoaderError,
   type StravaAuthStatus,
 } from '../services/stravaLoader';
 import { loadActivityIndex, loadTrack as loadDemoTrack } from '../services/garminLoader';
 
 const USE_DEMO_DATA = import.meta.env.VITE_USE_DEMO_DATA === 'true';
+
+/** Distinct authorization issues the UI can recover from with a targeted prompt. */
+export type StravaAuthIssue =
+  | { kind: 'missing_scope' }
+  | { kind: 'session_invalid' };
 
 /**
  * Main hook — Strava data source, with optional demo mode via VITE_USE_DEMO_DATA=true.
@@ -21,6 +27,17 @@ export function useActivityIndex() {
   const [loading, setLoading] = useState(true);
   const [stravaLoading, setStravaLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Authorization-specific issue surfaced to the UI for targeted recovery
+  // prompts (e.g. "you need to tick the activities checkbox"). Separate
+  // from `error` so the onboarding view can render a different message
+  // and CTA without parsing strings.
+  const [authIssue, setAuthIssue] = useState<StravaAuthIssue | null>(() => {
+    // Carry over `?strava=missing_scope` set by the OAuth callback when
+    // the user authorized without granting activity:read_all.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('strava') === 'missing_scope') return { kind: 'missing_scope' };
+    return null;
+  });
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -65,9 +82,28 @@ export function useActivityIndex() {
                   console.warn('[strava] Background full-load failed, keeping quick results:', e.message);
                 });
             }
-          } catch (e: any) {
+          } catch (e: unknown) {
             if (abortController.signal.aborted) return;
-            setError('Failed to load Strava activities: ' + e.message);
+            // Surface auth-specific failures as a separate `authIssue`
+            // so the onboarding view can show a targeted prompt
+            // ("re-authorize and tick the activities checkbox") instead
+            // of a bare error string.
+            if (e instanceof StravaLoaderError) {
+              if (e.isMissingScope()) {
+                setAuthIssue({ kind: 'missing_scope' });
+                // Clear the auth so the onboarding view (which renders
+                // the StravaConnectButton) is shown — there's nothing
+                // else the user can do without reconnecting.
+                setStravaAuth({ connected: false });
+              } else if (e.isSessionInvalid()) {
+                setAuthIssue({ kind: 'session_invalid' });
+                setStravaAuth({ connected: false });
+              } else {
+                setError('Failed to load Strava activities: ' + e.message);
+              }
+            } else {
+              setError('Failed to load Strava activities: ' + (e as Error)?.message);
+            }
           } finally {
             setStravaLoading(false);
           }
@@ -118,6 +154,7 @@ export function useActivityIndex() {
     index: loading ? null : index,
     loading,
     error,
+    authIssue,
     stravaAuth,
     stravaLoading,
     stravaTracksMap: tracksMap,

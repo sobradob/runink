@@ -113,7 +113,7 @@ interface MainAppProps {
 
 function MainApp({ logoLongPress }: MainAppProps) {
   const {
-    index, loading, error,
+    index, loading, error, authIssue,
     stravaAuth, stravaLoading, stravaTracksMap,
     connectStrava, disconnectStrava, refreshStrava,
   } = useActivityIndex();
@@ -224,6 +224,36 @@ function MainApp({ logoLongPress }: MainAppProps) {
               Transform your running data into beautiful, printable map posters.
               Connect your Strava account to get started.
             </p>
+
+            {/* Targeted recovery prompts. authIssue is set when the user
+                connected without granting activity:read_all (the most common
+                cause of the previously-cryptic "HTTP 500") or when Strava
+                later revokes the session. Both render alongside the normal
+                connect button — we want the user to act, not just read. */}
+            {authIssue?.kind === 'missing_scope' && (
+              <div
+                role="alert"
+                className="mb-6 text-left text-xs text-amber-200/90 bg-amber-900/15 border border-amber-500/30 rounded-md px-4 py-3 leading-relaxed"
+              >
+                <div className="font-medium text-amber-200 mb-1">Almost there</div>
+                <div className="text-amber-100/80">
+                  Strava sent us back without the "View data about your activities"
+                  permission. Click Connect again and make sure that checkbox is
+                  ticked — it's how we read your runs to make the poster.
+                </div>
+              </div>
+            )}
+            {authIssue?.kind === 'session_invalid' && (
+              <div
+                role="alert"
+                className="mb-6 text-left text-xs text-red-200/90 bg-red-900/15 border border-red-500/30 rounded-md px-4 py-3 leading-relaxed"
+              >
+                <div className="font-medium text-red-200 mb-1">Your Strava session expired</div>
+                <div className="text-red-100/80">
+                  Reconnect Strava to pick up where you left off.
+                </div>
+              </div>
+            )}
 
             <StravaConnectButton
               auth={stravaAuth}

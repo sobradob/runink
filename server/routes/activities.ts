@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getSession, updateSession } from '../lib/session.js';
-import { fetchAllGpsActivities, getValidAccessToken } from '../lib/strava-client.js';
+import { fetchAllGpsActivities, getValidAccessToken, StravaApiError } from '../lib/strava-client.js';
 import { stravaToActivitySummary, stravaToTrackData } from '../lib/transform.js';
 import type { ActivitySummary, TrackData } from '../lib/transform.js';
 
@@ -87,8 +87,32 @@ activitiesRouter.get('/activities', async (req, res) => {
 
     console.log(`Returning ${activities.length} activities, ${Object.keys(tracks).length} with tracks (partial=${isPartial})`);
     res.json({ activities, tracks, fetchedAt: Date.now(), partial: isPartial });
-  } catch (err: any) {
-    console.error('Failed to fetch Strava activities:', err.message);
+  } catch (err: unknown) {
+    // Strava returned a non-2xx — surface the specific cause so the
+    // client can show the right recovery UI instead of a generic 500.
+    if (err instanceof StravaApiError) {
+      console.error(`Strava API failure: ${err.status} ${err.body.slice(0, 200)}`);
+      if (err.isMissingScope()) {
+        // The token doesn't carry activity:read_all. The user needs to
+        // reconnect with the checkbox enabled. 403 + a typed code lets
+        // the client show a "please reconnect" prompt instead of a
+        // bare error.
+        return res.status(403).json({
+          error: 'Strava authorization is missing the "view activities" permission',
+          code: 'STRAVA_MISSING_SCOPE',
+        });
+      }
+      if (err.status === 401) {
+        // Token rejected for some other reason (revoked, app
+        // restricted). Treat as logged-out — the session is no longer
+        // useful, force a reconnect.
+        return res.status(401).json({
+          error: 'Strava session is no longer valid',
+          code: 'STRAVA_SESSION_INVALID',
+        });
+      }
+    }
+    console.error('Failed to fetch Strava activities:', (err as Error)?.message);
     res.status(500).json({ error: 'Failed to fetch activities from Strava' });
   }
 });

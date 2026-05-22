@@ -1,5 +1,10 @@
 import { Router } from 'express';
-import { getAuthorizationUrl, exchangeCodeForToken } from '../lib/strava-client.js';
+import {
+  getAuthorizationUrl,
+  exchangeCodeForToken,
+  assertScopeOk,
+  StravaInsufficientScopeError,
+} from '../lib/strava-client.js';
 import { createSession, getSession, deleteSession } from '../lib/session.js';
 
 export const authRouter = Router();
@@ -30,6 +35,23 @@ authRouter.get('/strava/callback', async (req, res) => {
 
   try {
     const tokenData = await exchangeCodeForToken(code as string);
+
+    // Reject the auth right here if the user didn't grant
+    // activity:read_all (e.g. unchecked the "view your activities" box
+    // on Strava's consent screen). Without this scope, every later
+    // /athlete/activities call 401s and the user sees "HTTP 500" with
+    // no recovery path. We surface a clean error code in the redirect
+    // query so the frontend can show a targeted "please re-authorize
+    // and tick the activities checkbox" message.
+    try {
+      assertScopeOk(tokenData.scope);
+    } catch (scopeErr) {
+      if (scopeErr instanceof StravaInsufficientScopeError) {
+        console.warn(`Strava connect rejected — insufficient scope for athlete ${tokenData.athlete.id}: granted="${scopeErr.grantedScope}"`);
+        return res.redirect('/?strava=missing_scope');
+      }
+      throw scopeErr;
+    }
 
     const sessionId = createSession({
       accessToken: tokenData.access_token,

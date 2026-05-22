@@ -20,22 +20,85 @@ export function getAuthorizationUrl(): string {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
+    // Both scopes are required for the app to function:
+    //   - `read`               profile basics so we can show the athlete name
+    //   - `activity:read_all`  GPS-bearing private+public activities — without
+    //                          this, /athlete/activities returns 401 on every
+    //                          call (real customer hit this 2026-05-22).
     scope: 'read,activity:read_all',
-    approval_prompt: 'auto',
+    // `force` (not `auto`) so Strava ALWAYS shows the consent screen with the
+    // "View data about your activities" checkbox visible. With `auto`, a user
+    // who previously authorized with a narrower scope (or unchecked the
+    // activities box) gets a silently-narrower token and 401s forever after.
+    approval_prompt: 'force',
   });
   return `${STRAVA_AUTH_URL}?${params}`;
+}
+
+/**
+ * Required Strava scopes for the app to function. Token responses that
+ * don't include `activity:read_all` cannot fetch activities and need
+ * the user to re-authorize with the box checked.
+ */
+const REQUIRED_SCOPES = ['activity:read_all'] as const;
+
+export class StravaInsufficientScopeError extends Error {
+  readonly grantedScope: string;
+  readonly missing: string[];
+  constructor(grantedScope: string, missing: string[]) {
+    super(`Strava authorization is missing required scopes: ${missing.join(', ')} (got: "${grantedScope || '(empty)'}").`);
+    this.name = 'StravaInsufficientScopeError';
+    this.grantedScope = grantedScope;
+    this.missing = missing;
+  }
+}
+
+/** Typed wrapper for non-2xx responses from Strava. Carries the body so
+ *  the activities route can distinguish "missing scope" (recoverable by
+ *  reconnecting) from other failures (token expired, app restricted). */
+export class StravaApiError extends Error {
+  readonly status: number;
+  readonly body: string;
+  constructor(status: number, body: string) {
+    super(`Strava API error: ${status}`);
+    this.name = 'StravaApiError';
+    this.status = status;
+    this.body = body;
+  }
+  /** True iff Strava's 401 body explicitly mentions a missing scope. */
+  isMissingScope(): boolean {
+    if (this.status !== 401) return false;
+    return /activity:read|missing/i.test(this.body);
+  }
 }
 
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
   expires_at: number;
+  /** Comma-separated list of granted scopes. Strava's docs are inconsistent
+   *  but in practice the token endpoint returns this on the response body. */
+  scope?: string;
   athlete: {
     id: number;
     firstname: string;
     lastname: string;
     profile: string;
   };
+}
+
+/** Throws StravaInsufficientScopeError if any REQUIRED_SCOPES are absent. */
+export function assertScopeOk(grantedScope: string | undefined): void {
+  const granted = new Set(
+    (grantedScope ?? '')
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const missing = REQUIRED_SCOPES.filter((s) => !granted.has(s));
+  if (missing.length > 0) {
+    throw new StravaInsufficientScopeError(grantedScope ?? '', missing);
+  }
 }
 
 export async function exchangeCodeForToken(code: string): Promise<TokenResponse> {
@@ -56,7 +119,12 @@ export async function exchangeCodeForToken(code: string): Promise<TokenResponse>
     throw new Error(`Strava token exchange failed: ${res.status} ${text}`);
   }
 
-  return res.json();
+  const data = await res.json() as TokenResponse;
+  // Log the scope so when a customer reports a 401, we can confirm
+  // whether the issue was a partial-scope authorization vs something
+  // else (revoked token, Strava app status, etc).
+  console.log(`Strava token issued for athlete ${data.athlete.id}, scope="${data.scope ?? '(not in response)'}"`);
+  return data;
 }
 
 export async function refreshAccessToken(refreshToken: string): Promise<{
@@ -167,7 +235,14 @@ export async function fetchAllGpsActivities(
         console.warn('Strava rate limit hit, returning partial results');
         break;
       }
-      throw new Error(`Strava API error: ${res.status}`);
+      // Capture the response body so customer-visible 401/403s are
+      // diagnosable from the logs. Strava's typical 401 body looks
+      // like {"message":"Authorization Error","errors":[{"resource":"AccessToken","field":"activity:read_permission","code":"missing"}]}
+      // which tells us at a glance whether the cause is missing scope
+      // vs an actually-expired token vs a revoked app.
+      const body = await res.text().catch(() => '(no body)');
+      console.error(`Strava API ${res.status} on ${url}: ${body.slice(0, 400)}`);
+      throw new StravaApiError(res.status, body);
     }
 
     const activities: StravaActivity[] = await res.json();
