@@ -1,5 +1,14 @@
 # Lessons Learned
 
+## 2026-05-22: Cross-device render parity comes from one renderer, not careful coding
+**Failure mode:** A client-side Canvas-2D re-implementation (`renderPosterToBlob`) of the React/MapLibre preview drifted from the preview over time — different fonts, line caps, gradient opacities. Compounded by iOS Safari's 16M-px canvas cap. Paying customers received prints that didn't match what they customised.
+**Detection:** User-visible — mobile orders looked different from desktop orders, and prints looked different from previews.
+**Prevention:** Don't try to keep two renderers in sync. Use the SAME components for preview and for the output by rendering server-side in a fixed Linux Chromium (Playwright). The render environment is the only thing that needs to be consistent; WYSIWYG becomes a property of the architecture instead of careful coding. A 2 GB instance is the floor for headless Chromium (0.5 GB OOMs).
+
+## 2026-05-22: `VITE_*` env vars are build-time, not runtime
+**Failure mode:** Easy to assume DO env var flips activate immediately. Vite bakes `VITE_*` vars into the JS bundle at `vite build`, so any flag with that prefix requires a redeploy to take effect.
+**Prevention:** Decouple client-side and server-side flags. Use `VITE_RENDER_ON_SERVER` (build-time, in the bundle) AND a separate runtime `ENABLE_SERVER_RENDER` (server-side, runtime check). Both must be true. Stale clients can't accidentally invoke an unprepared server; a runtime flag flip on the server still requires a client rebuild to actually route customer traffic.
+
 ## 2026-03-24: DigitalOcean DNS CNAME hostnames
 **Failure mode:** SES DKIM verification failed because CNAME records had doubled domain suffix.
 **Detection:** `dig` queries returned empty for DKIM records.
