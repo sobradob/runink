@@ -1,5 +1,15 @@
 # Lessons Learned
 
+## 2026-05-22: Strava OAuth approval_prompt=auto is a foot-gun for required scopes
+**Failure mode:** First real customer connected Strava, name showed in header, then every activities fetch returned 500 (server got 401 from Strava). Strava had issued a token without `activity:read_all` because the user unchecked the "View data about your activities" box on the consent screen. With `approval_prompt=auto` the user can never re-grant — Strava silently reissues the prior narrower scope on every subsequent connect.
+**Detection:** Production logs showed `Strava API error: 401` ~80 ms after every fetch. The fast turnaround (not a timeout) plus the user being freshly-connected pointed at scope rather than expiry. Confirmed by reading Strava's docs about `approval_prompt`.
+**Prevention:**
+1. Use `approval_prompt=force` for any scope you actually require — never trust that previous authorizations cover what you need now.
+2. Log the granted `scope` field from the token exchange response.
+3. Assert required scopes at the auth callback; redirect to a `?strava=missing_scope` error route instead of writing a useless session.
+4. When Strava returns non-2xx, log the response body — Strava's error body says exactly what's missing (e.g. `"field":"activity:read_permission","code":"missing"`).
+5. Return a typed `code` (e.g. `STRAVA_MISSING_SCOPE`) from the API so the UI can render a targeted recovery prompt, not "HTTP 500".
+
 ## 2026-05-22: Three things must be true before a server-side render screenshots
 **Context:** The server-side Playwright render shipped in this session signaled `__POSTER_READY__` after MapLibre double-idle, but the screenshot could still race with the web-font swap and capture fallback glyphs. The problem manifests subtly — text is the *right shape* but not the *right font*, easy to miss until print.
 **Prevention:** Before letting Playwright screenshot, await ALL of:
