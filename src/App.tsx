@@ -9,7 +9,20 @@ import { RedeemPage } from '@/features/checkout/ui/RedeemPage';
 import { PrivacyPolicy } from '@/features/legal/PrivacyPolicy';
 import { OrderSuccessPage } from '@/features/checkout/ui/OrderSuccessPage';
 import { OrderStatusPage } from '@/features/checkout/ui/OrderStatusPage';
+import { InternalRenderPage } from '@/features/poster/render/InternalRenderPage';
 import { getGiftContext, persistGiftContext, type GiftContext } from '@/features/checkout/services/checkoutApi';
+
+/** Internal render surface for server-side Playwright poster capture.
+ *  Checked before the main app boots so we bypass Strava auth, the activity
+ *  index, and all other app shell concerns — the page needs to mount nothing
+ *  but `<MapPreview>` + `<StatsOverlay>` so the screenshot matches the preview. */
+const INTERNAL_RENDER_PREFIX = '/internal/render-poster/';
+function getInternalRenderToken(): string | null {
+  const path = window.location.pathname;
+  if (!path.startsWith(INTERNAL_RENDER_PREFIX)) return null;
+  const token = path.slice(INTERNAL_RENDER_PREFIX.length);
+  return /^[0-9a-f-]{36}$/i.test(token) ? token : null;
+}
 
 type View =
   | { type: 'browse' }
@@ -42,6 +55,16 @@ function getInitialView(): View {
 }
 
 export default function App() {
+  // Playwright-driven render route — short-circuits the main shell so the
+  // screenshot is a pristine poster and not a half-rendered app.
+  const internalToken = getInternalRenderToken();
+  if (internalToken) {
+    return <InternalRenderPage token={internalToken} />;
+  }
+  return <MainApp />;
+}
+
+function MainApp() {
   const {
     index, loading, error,
     stravaAuth, stravaLoading, stravaTracksMap,

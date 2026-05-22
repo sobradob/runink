@@ -119,6 +119,29 @@ export async function uploadPosterPng(uploadUrl: string, method: string, blob: B
   }
 }
 
+/**
+ * Server-side render path: POST the full poster payload, server runs
+ * Playwright + Chromium to produce the PNG, uploads it to R2, and attaches
+ * the URL to the order row. The old flow (renderPoster → getUploadUrl →
+ * uploadPosterPng) is still available as a fallback.
+ */
+export async function renderPosterOnServer(
+  orderId: string,
+  payload: unknown,
+  dimensions: { widthMm: number; heightMm: number; dpi: number; tierId?: string },
+): Promise<{ imageUrl: string }> {
+  const res = await fetch(`/api/render/order/${orderId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payload, dimensions }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(err.error || 'Server render failed');
+  }
+  return res.json();
+}
+
 // === Gift context persistence (cookie + URL param fallback) ===
 
 export interface GiftContext {

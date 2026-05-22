@@ -29,9 +29,20 @@ import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer'
 
 /** Flip to false to fall back to the old Canvas-based renderer */
 const USE_CAPTURE_RENDERER = true;
+
+/** When true (set VITE_RENDER_ON_SERVER=true), paid-print orders use the
+ *  server-side Playwright renderer instead of rendering in the browser.
+ *  Guarantees WYSIWYG fidelity and full print DPI on every device. See
+ *  server/lib/poster-renderer.ts. Default: off, so rollout is gated. */
+const RENDER_ON_SERVER = import.meta.env.VITE_RENDER_ON_SERVER === 'true';
 import { OrderButton } from '@/features/checkout/ui/OrderButton';
 import { GiftOrderButton } from '@/features/checkout/ui/GiftOrderButton';
-import type { GiftContext } from '@/features/checkout/services/checkoutApi';
+import {
+  getUploadUrl,
+  renderPosterOnServer,
+  uploadPosterPng,
+  type GiftContext,
+} from '@/features/checkout/services/checkoutApi';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
 
 interface PosterEditorProps {
@@ -270,6 +281,46 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     return renderPosterToBlob(buildRenderOptions());
   }, [buildRenderOptions, config.dimensions]);
 
+  /** Render + upload for the paid-order flow. Dispatches to either the
+   *  server-side Playwright renderer or the legacy client-render-then-upload
+   *  path based on the VITE_RENDER_ON_SERVER flag. OrderButton and
+   *  GiftOrderButton both call this once per order. */
+  const submitPoster = useCallback(async (
+    orderId: string,
+    printDimensions?: PosterDimensions,
+  ): Promise<void> => {
+    if (RENDER_ON_SERVER) {
+      const opts = buildRenderOptions();
+      const dims = printDimensions ?? config.dimensions;
+      // Payload mirrors the preview's own component inputs so the internal
+      // render page can mount identical components.
+      const payload = {
+        theme: opts.theme,
+        config: { ...opts.config, dimensions: dims },
+        tracks: opts.tracks,
+        mode,
+        activity,
+        activities,
+        title: opts.title,
+        subtitle: opts.subtitle,
+        showStats: config.showStats,
+        showCoordinates: config.showCoordinates,
+      };
+      await renderPosterOnServer(orderId, payload, {
+        widthMm: dims.widthMm,
+        heightMm: dims.heightMm,
+        dpi: dims.dpi,
+        tierId: dims.tierId,
+      });
+      return;
+    }
+
+    // Legacy client-side flow — render in browser, then upload to R2.
+    const blob = await renderPoster(printDimensions);
+    const { url, method, local } = await getUploadUrl(orderId);
+    await uploadPosterPng(url, method, blob, orderId, local);
+  }, [buildRenderOptions, config.dimensions, config.showStats, config.showCoordinates, mode, activity, activities, renderPoster]);
+
   const handleExport = useCallback(async () => {
     if (tracks.length === 0) return;
     setExporting(true);
@@ -301,6 +352,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         activityIds: activities?.map(a => a.id),
       }}
       renderPoster={renderPoster}
+      submitPoster={submitPoster}
     />
   ) : (
     <OrderButton
@@ -310,6 +362,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         activityIds: activities?.map(a => a.id),
       }}
       renderPoster={renderPoster}
+      submitPoster={submitPoster}
     />
   );
 

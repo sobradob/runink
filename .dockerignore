@@ -1,0 +1,18 @@
+# Keep the build context small and reproducible.
+node_modules
+dist
+.git
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+.vscode
+.idea
+coverage
+.nyc_output
+# Generated handover docs — not needed for build
+HANDOVER_*.md
+# Claude worktree metadata
+.claude
+.agents

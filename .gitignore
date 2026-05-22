@@ -8,3 +8,9 @@ data/runink.db
 data/uploads/
 HANDOVER_*.md
 .claude/
+# Smoke-test outputs (scripts/smoke-render.ts, scripts/smoke-inspect.ts)
+smoke-render.png
+smoke-inspect.png
+smoke-inspect.html
+# Generated/exported DO app spec — contains encrypted secret EVs, not for git
+.do/app.proposed.yaml

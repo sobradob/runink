@@ -88,6 +88,33 @@ export function storeLocal(key: string, data: Buffer): string {
 }
 
 /**
+ * Upload a buffer directly to the configured store (R2 in prod, local
+ * filesystem in dev). Returns the storage key that was written. Used by the
+ * server-side poster renderer which produces the PNG in-process (no
+ * client round-trip to a presigned URL).
+ */
+export async function storeBuffer(
+  key: string,
+  data: Buffer,
+  contentType: string = 'image/png',
+): Promise<string> {
+  if (s3Client) {
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+        Body: data,
+        ContentType: contentType,
+      }),
+    );
+    return key;
+  }
+
+  storeLocal(key, data);
+  return key;
+}
+
+/**
  * Get the local file path for serving.
  */
 export function getLocalPath(key: string): string {

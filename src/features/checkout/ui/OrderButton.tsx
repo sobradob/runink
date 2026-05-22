@@ -6,11 +6,20 @@ import type { PosterDimensions } from '@/types/poster';
 
 interface OrderButtonProps {
   posterConfig: any;
+  /** Legacy client-side render path — renders a blob that OrderButton then
+   *  uploads to R2. Still used as the fallback when `submitPoster` is not
+   *  provided. */
   renderPoster?: (printDimensions?: PosterDimensions) => Promise<Blob>;
+  /** Preferred path (post server-side render migration): a single async
+   *  call that takes ownership of rendering AND uploading. Hides the
+   *  local-vs-server dispatch from this button. When provided, this
+   *  replaces the `renderPoster` → `getUploadUrl` → `uploadPosterPng`
+   *  three-step dance. */
+  submitPoster?: (orderId: string, printDimensions?: PosterDimensions) => Promise<void>;
   onOrderCreated?: (orderId: string) => void;
 }
 
-export function OrderButton({ posterConfig, renderPoster, onOrderCreated }: OrderButtonProps) {
+export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderCreated }: OrderButtonProps) {
   const [open, setOpen] = useState(false);
   const [framed, setFramed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -37,10 +46,19 @@ export function OrderButton({ posterConfig, renderPoster, onOrderCreated }: Orde
       });
       onOrderCreated?.(orderId);
 
-      if (renderPoster) {
+      const printDims = PRINT_DIMENSIONS[activeTierId];
+      const fullPrintDims: PosterDimensions | undefined = printDims
+        ? { ...printDims, label: activeTierId, category: 'printable', tierId: activeTierId }
+        : undefined;
+
+      if (submitPoster) {
+        // New path: PosterEditor owns render+upload (local or server-side).
         setStatus('Rendering poster...');
-        const printDims = PRINT_DIMENSIONS[activeTierId];
-        const blob = await renderPoster(printDims ? { ...printDims, label: activeTierId, category: 'printable', tierId: activeTierId } : undefined);
+        await submitPoster(orderId, fullPrintDims);
+      } else if (renderPoster) {
+        // Legacy client-side flow — retained as fallback.
+        setStatus('Rendering poster...');
+        const blob = await renderPoster(fullPrintDims);
 
         setStatus('Uploading artwork...');
         const { url, method, local } = await getUploadUrl(orderId);

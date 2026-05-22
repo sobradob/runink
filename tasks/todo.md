@@ -3,14 +3,19 @@
 ## Bugs
 
 - [x] **PNG export doesn't match preview** — Fixed: use pixelRatio scaling instead of container resize
+- [x] **Strava OAuth redirects to `ondigitalocean.app` instead of `runink.app`** — Fixed: component-level env var on DO was overriding the correct app-level value. Deleted the component-level var.
 
 ## UX Improvements
+
+- [ ] **Unify size selector and print tier selector**
+  - Currently two separate size pickers: one in the editor (30x40cm, 40x60cm, etc.) and one in the checkout (Small Poster, Large Poster, etc.)
+  - Confusing UX — selecting a print tier should auto-set the poster dimensions, or the editor size should determine which tiers are available
+  - Consider: remove the size picker from the editor when ordering a print, and let the tier selection drive dimensions
 
 - [ ] **Improve checkout process with poster preview**
   - Show a preview of the poster in the Order Print modal before payment
   - Currently the user clicks "Order Print", selects a tier, and immediately goes to Stripe — no visual confirmation of what they're buying
   - Consider rendering a thumbnail preview in the tier selection modal
-  - Note: Order Print currently gated behind "Coming Soon" popup (`COMING_SOON` flag in OrderButton.tsx)
 
 ## Infrastructure
 

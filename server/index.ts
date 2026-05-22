@@ -10,8 +10,11 @@ import { giftRouter } from './routes/gift.js';
 import { ordersRouter } from './routes/orders.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { adminRouter } from './routes/admin.js';
+import { renderRouter } from './routes/render.js';
 import { initDb } from './lib/db.js';
 import { LOCAL_DIR } from './lib/storage.js';
+import { closeBrowser, verifyChromium } from './lib/poster-renderer.js';
+import { log } from './lib/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +35,10 @@ app.set('trust proxy', 1);
 app.use('/api/webhooks', webhooksRouter);
 
 app.use(cookieParser());
+// Render route accepts the full poster payload (tracks + theme + config).
+// Compilations with many runs can exceed the default 1MB body limit, so
+// this path-scoped parser (registered BEFORE the global one) handles it.
+app.use('/api/render', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // Mount API routes
@@ -40,6 +47,7 @@ app.use('/api/strava', activitiesRouter);
 app.use('/api/gift', giftRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/render', renderRouter);
 
 // Serve locally uploaded files (dev fallback)
 app.use('/uploads', express.static(LOCAL_DIR));
@@ -77,6 +85,14 @@ initDb().catch(err => {
   process.exit(1);
 });
 
+// Close the Playwright browser pool cleanly on shutdown so Chromium doesn't
+// linger as a zombie on the deploy host.
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    closeBrowser().finally(() => process.exit(0));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`RunInk server running on http://localhost:${PORT}`);
   console.log(`Strava OAuth redirect: ${process.env.STRAVA_REDIRECT_URI}`);
@@ -90,6 +106,8 @@ app.listen(PORT, () => {
     NOTIFY_EMAIL: process.env.NOTIFY_EMAIL || '(not set)',
     ADMIN_SECRET: !!process.env.ADMIN_SECRET,
     DATABASE_URL: !!process.env.DATABASE_URL,
+    ENABLE_SERVER_RENDER: process.env.ENABLE_SERVER_RENDER === 'true',
+    ENABLE_SMOKE_ENDPOINTS: process.env.ENABLE_SMOKE_ENDPOINTS === 'true',
   };
   console.log('Config check:', JSON.stringify(checks));
   if (checks.EMAIL_FROM.includes('resend.dev')) {
@@ -97,5 +115,20 @@ app.listen(PORT, () => {
   }
   if (!checks.RESEND_API_KEY) {
     console.warn('WARNING: RESEND_API_KEY not set — all emails will be skipped');
+  }
+
+  // Boot-time Chromium validation. Fire-and-forget — we don't want to delay
+  // /api/health responses, but we DO want a loud failure in the logs (and an
+  // unhealthy /api/render/health) if Chromium can't launch.
+  // Skipped in non-production unless the server-render path is explicitly
+  // enabled, to keep `tsx watch` reloads fast for non-render development.
+  if (checks.ENABLE_SERVER_RENDER || IS_PRODUCTION) {
+    verifyChromium().catch((err) => {
+      log.error('Chromium failed to launch at boot — render endpoint will return 503', {
+        scope: 'render.boot',
+        outcome: 'error',
+        error: err.message,
+      });
+    });
   }
 });

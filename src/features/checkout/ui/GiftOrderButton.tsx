@@ -7,10 +7,14 @@ interface GiftOrderButtonProps {
   giftCode: string;
   tierId: string;
   posterConfig: any;
+  /** Legacy client-side render — retained as fallback. */
   renderPoster?: (printDimensions?: PosterDimensions) => Promise<Blob>;
+  /** Preferred: PosterEditor-provided single-call submit (dispatches to
+   *  server-side render when the flag is on). See OrderButton for details. */
+  submitPoster?: (orderId: string, printDimensions?: PosterDimensions) => Promise<void>;
 }
 
-export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster }: GiftOrderButtonProps) {
+export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster, submitPoster }: GiftOrderButtonProps) {
   const [showEmail, setShowEmail] = useState(false);
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,13 +36,21 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster }
       setStatus('Creating order...');
       const { orderId } = await createGiftOrder({ giftCode, tierId, email, posterConfig });
 
-      // Step 2: Render poster at print dimensions
-      if (renderPoster) {
-        setStatus('Rendering poster...');
-        const printDims = PRINT_DIMENSIONS[tierId];
-        const blob = await renderPoster(printDims ? { ...printDims, label: tierId, category: 'printable', tierId } : undefined);
+      // Step 2+3: Render + upload. Prefer the combined submitPoster path
+      // (which dispatches to server-side Playwright render behind a flag)
+      // and fall back to the legacy client-side flow otherwise.
+      const printDims = PRINT_DIMENSIONS[tierId];
+      const fullPrintDims: PosterDimensions | undefined = printDims
+        ? { ...printDims, label: tierId, category: 'printable', tierId }
+        : undefined;
 
-        // Step 3: Upload poster PNG
+      if (submitPoster) {
+        setStatus('Rendering poster...');
+        await submitPoster(orderId, fullPrintDims);
+      } else if (renderPoster) {
+        setStatus('Rendering poster...');
+        const blob = await renderPoster(fullPrintDims);
+
         setStatus('Uploading artwork...');
         const { url, method, local } = await getUploadUrl(orderId);
         await uploadPosterPng(url, method, blob, orderId, local);
