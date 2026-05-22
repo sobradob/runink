@@ -1,8 +1,15 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import type { ActivitySummary } from '@/types/activity';
 import { filterActivities, getUniqueLocations, suggestRegions, geocodePlace } from '../services/garminLoader';
 import type { RegionFilter } from '../services/garminLoader';
 import { formatDistance, formatPace, formatDate } from '@/shared/utils/format';
+import { boundsFromActivities, distanceKm } from '@/shared/geo/bounds';
+import { DispersedCompileModal } from './DispersedCompileModal';
+
+/** Diagonal (km) above which "Compile all" prompts before proceeding.
+ *  ~300 km is roughly "multiple cities"; tight regional collections
+ *  (Budapest, Greater London, etc.) fall under this threshold. */
+const DISPERSED_THRESHOLD_KM = 300;
 
 interface ActivityBrowserProps {
   activities: ActivitySummary[];
@@ -33,6 +40,10 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
   // Collapsible filters on mobile
   const [filtersOpen, setFiltersOpen] = useState(false);
   const hasActiveFilters = !!(location || region || dateFrom || dateTo);
+
+  // Dispersed-compile warning state
+  const [dispersionWarn, setDispersionWarn] = useState(false);
+  const filtersSectionRef = useRef<HTMLDivElement>(null);
 
   // Compute activity type counts for filter pills
   const sportTypeCounts = useMemo(() => {
@@ -119,15 +130,62 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
     setSelectedIds(new Set(filtered.map((a) => a.id)));
   };
 
-  // Quick compilation: select all filtered and go straight to poster
+  // Dispersion stats for the filtered set — memoised so we don't recompute
+  // on every render of the compile button.
+  const { diagonalKm, isDispersed } = useMemo(() => {
+    if (filtered.length < 2) return { diagonalKm: 0, isDispersed: false };
+    const bbox = boundsFromActivities(filtered);
+    if (!bbox) return { diagonalKm: 0, isDispersed: false };
+    const km = distanceKm(bbox.minLat, bbox.minLng, bbox.maxLat, bbox.maxLng);
+    return { diagonalKm: km, isDispersed: km > DISPERSED_THRESHOLD_KM };
+  }, [filtered]);
+
+  // Quick compilation: select all filtered and go straight to poster.
+  // If the set spans a wide area (>300 km diagonal), warn first — a compiled
+  // poster of globally-dispersed runs zooms out so far that every track
+  // becomes invisible. User can still proceed via "Compile anyway".
   const handleQuickCompilation = () => {
-    if (filtered.length > 1) onSelectMultiple(filtered);
+    if (filtered.length <= 1) return;
+    if (isDispersed) {
+      setDispersionWarn(true);
+      return;
+    }
+    onSelectMultiple(filtered);
+  };
+
+  const handleConfirmDispersedCompile = () => {
+    setDispersionWarn(false);
+    onSelectMultiple(filtered);
+  };
+
+  const handleDispersedPickRegion = (r: { label: string; lat: number; lng: number; count: number }) => {
+    // Apply the region as a filter and close the modal. Don't compile.
+    setFilterMode('region');
+    setLocation('');
+    setRegion({ centerLat: r.lat, centerLng: r.lng, radiusKm, label: r.label });
+    setRegionQuery(r.label);
+    setFiltersOpen(true); // ensure mobile filter section is visible
+    setDispersionWarn(false);
+    // Scroll the filters section into view so the user sees the applied filter.
+    setTimeout(() => {
+      filtersSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
+
+  const handleOpenRegionFilter = () => {
+    // Switch to region mode so the user can pick a region themselves.
+    setFilterMode('region');
+    setFiltersOpen(true);
+    setDispersionWarn(false);
+    setTimeout(() => {
+      filtersSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   };
 
   return (
     <div className="flex flex-col h-full">
       {/* Filters */}
-      <div className="p-4 border-b border-white/10 space-y-3">
+      <div ref={filtersSectionRef} className="p-4 border-b border-white/10 space-y-3">
         <input
           type="text"
           placeholder="Search by name or location..."
@@ -412,6 +470,17 @@ export function ActivityBrowser({ activities, onSelectSingle, onSelectMultiple }
           </a>
         </div>
       </div>
+
+      <DispersedCompileModal
+        open={dispersionWarn}
+        runCount={filtered.length}
+        diagonalKm={diagonalKm}
+        regions={suggestedRegions}
+        onClose={() => setDispersionWarn(false)}
+        onPickRegion={handleDispersedPickRegion}
+        onCompileAnyway={handleConfirmDispersedCompile}
+        onOpenRegionFilter={handleOpenRegionFilter}
+      />
     </div>
   );
 }

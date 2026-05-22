@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 
 type SheetSnap = 'collapsed' | 'half' | 'full';
 
@@ -27,6 +27,9 @@ export function MobileSettingsSheet({ children, actionButtons, collapseRef }: Mo
   const [isDragging, setIsDragging] = useState(false);
   const startY = useRef(0);
   const startSnap = useRef<SheetSnap>('collapsed');
+  // One-shot flag: scroll-to-expand only fires once per half-snap so the user
+  // can still scroll freely inside the sheet once it reaches full.
+  const scrollExpandArmed = useRef(true);
 
   const collapse = useCallback(() => setSnap('collapsed'), []);
 
@@ -34,6 +37,32 @@ export function MobileSettingsSheet({ children, actionButtons, collapseRef }: Mo
   if (collapseRef) collapseRef.current = collapse;
 
   const isExpanded = snap !== 'collapsed';
+
+  // Body scroll lock while the sheet is expanded. Prevents the preview/page
+  // below from scrolling when the user is interacting with settings.
+  useEffect(() => {
+    if (!isExpanded) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isExpanded]);
+
+  // Re-arm scroll-to-expand whenever the sheet leaves 'half' so a later
+  // drag-down + scroll cycle can expand it again.
+  useEffect(() => {
+    if (snap !== 'half') scrollExpandArmed.current = true;
+  }, [snap]);
+
+  const onSettingsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    // Auto-expand to full when the user starts scrolling inside a half-height
+    // sheet — matches the iOS Maps / Apple Music sheet behaviour.
+    if (snap === 'half' && scrollExpandArmed.current && e.currentTarget.scrollTop > 4) {
+      scrollExpandArmed.current = false;
+      setSnap('full');
+    }
+  };
 
   const onTouchStart = (e: React.TouchEvent) => {
     const target = e.target as HTMLElement;
@@ -97,9 +126,10 @@ export function MobileSettingsSheet({ children, actionButtons, collapseRef }: Mo
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Drag handle + Customize button */}
+        {/* Drag handle + Customize button — opens straight to full so the
+            user doesn't have to drag up again to see most of the settings. */}
         <button
-          onClick={() => setSnap(isExpanded ? 'collapsed' : 'half')}
+          onClick={() => setSnap(isExpanded ? 'collapsed' : 'full')}
           className="flex flex-col items-center pt-3 pb-2 flex-shrink-0 w-full"
         >
           <div className="w-10 h-1 rounded-full bg-white/30 mb-2" />
@@ -119,6 +149,7 @@ export function MobileSettingsSheet({ children, actionButtons, collapseRef }: Mo
         {/* Scrollable settings content — hidden when collapsed */}
         <div
           className="flex-1 overflow-y-auto overscroll-contain min-h-0"
+          onScroll={onSettingsScroll}
           style={{
             opacity: isExpanded ? 1 : 0,
             pointerEvents: isExpanded ? 'auto' : 'none',
