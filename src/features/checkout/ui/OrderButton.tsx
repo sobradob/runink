@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { createDirectOrder, getUploadUrl, uploadPosterPng } from '../services/checkoutApi';
+import { useEffect, useRef, useState } from 'react';
+import { createDirectOrder, getUploadUrl, uploadPosterPng, RenderError } from '../services/checkoutApi';
 import { FRAMED_TIER, getTier, PRINT_DIMENSIONS } from './tiers';
 import { COMING_SOON, ComingSoonPopup } from './ComingSoon';
 import type { PosterDimensions } from '@/types/poster';
@@ -26,6 +26,22 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
   const [status, setStatus] = useState('');
   const [showComingSoon, setShowComingSoon] = useState(false);
 
+  // Error surface: a retryable error keeps the order around (orderId stays in
+  // outstandingOrderIdRef) so a retry only re-runs the render+upload step
+  // instead of double-creating the order. Non-retryable errors clear the
+  // outstanding order — the user will start over from scratch.
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [errRequestId, setErrRequestId] = useState<string | null>(null);
+  const [errRetryable, setErrRetryable] = useState(false);
+  const outstandingOrderIdRef = useRef<string | null>(null);
+  const outstandingCheckoutUrlRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Cancel any in-flight render request if the component unmounts (user
+  // navigates away mid-submit). The server keeps rendering but the client
+  // stops caring — the order's png_url will still be set when it finishes.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const dimensions: PosterDimensions | undefined = posterConfig?.dimensions;
   const baseTierId = dimensions?.tierId;
   const isPrintable = dimensions?.category === 'printable' && !!baseTierId;
@@ -35,16 +51,35 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
   const activeTierId = framed && framedTierId ? framedTierId : baseTierId;
   const activeTier = activeTierId ? getTier(activeTierId) : undefined;
 
+  const clearError = () => {
+    setErrMsg(null);
+    setErrRequestId(null);
+    setErrRetryable(false);
+  };
+
   const handleOrder = async () => {
     if (!activeTierId) return;
     setLoading(true);
+    clearError();
+    abortRef.current = new AbortController();
     try {
-      setStatus('Creating order...');
-      const { orderId, checkoutUrl } = await createDirectOrder({
-        tierId: activeTierId,
-        posterConfig,
-      });
-      onOrderCreated?.(orderId);
+      // Skip createDirectOrder when retrying a render that already produced
+      // an orderId — re-creating would charge the customer's Stripe context
+      // (idempotent on backend but produces duplicate rows here).
+      let orderId = outstandingOrderIdRef.current;
+      let checkoutUrl = outstandingCheckoutUrlRef.current;
+      if (!orderId || !checkoutUrl) {
+        setStatus('Creating order...');
+        const created = await createDirectOrder({
+          tierId: activeTierId,
+          posterConfig,
+        });
+        orderId = created.orderId;
+        checkoutUrl = created.checkoutUrl;
+        outstandingOrderIdRef.current = orderId;
+        outstandingCheckoutUrlRef.current = checkoutUrl;
+        onOrderCreated?.(orderId);
+      }
 
       const printDims = PRINT_DIMENSIONS[activeTierId];
       const fullPrintDims: PosterDimensions | undefined = printDims
@@ -53,6 +88,8 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
 
       if (submitPoster) {
         // New path: PosterEditor owns render+upload (local or server-side).
+        // Server-side renders typically take 2-7s; the client shows a
+        // "Rendering poster…" state for the whole window.
         setStatus('Rendering poster...');
         await submitPoster(orderId, fullPrintDims);
       } else if (renderPoster) {
@@ -65,11 +102,31 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
         await uploadPosterPng(url, method, blob, orderId, local);
       }
 
+      // Render+upload succeeded — clear the in-flight order so back-button
+      // doesn't accidentally re-enter the retry path.
+      outstandingOrderIdRef.current = null;
+      outstandingCheckoutUrlRef.current = null;
+
       setStatus('Redirecting to payment...');
       window.location.href = checkoutUrl;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Order failed:', e);
-      setStatus(`Error: ${e.message || 'Unknown error'}`);
+      if (e instanceof RenderError) {
+        // Render error from the server path. Already through 3 attempts —
+        // if `retryable` is still true, the queue was busy the whole time
+        // and a manual retry might catch a window.
+        setErrMsg(e.message || 'Server render failed');
+        setErrRequestId(e.requestId ?? null);
+        setErrRetryable(e.retryable);
+      } else {
+        const msg = (e as Error)?.message || 'Unknown error';
+        setErrMsg(msg);
+        setErrRequestId(null);
+        // Order-creation errors and legacy client-render errors get a
+        // manual retry button — failing now means we haven't taken payment.
+        setErrRetryable(true);
+      }
+      setStatus('');
       setLoading(false);
     }
   };
@@ -156,10 +213,42 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
         disabled={loading}
         className="w-full py-3 rounded-lg bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 disabled:opacity-50 transition-all"
       >
-        {loading ? status || 'Processing...' : 'Proceed to Payment'}
+        {loading
+          ? status || 'Processing...'
+          : errMsg && errRetryable
+            ? 'Retry'
+            : 'Proceed to Payment'}
       </button>
+
+      {errMsg && (
+        <div
+          role="alert"
+          className="text-[11px] text-red-300/80 bg-red-900/15 border border-red-500/20 rounded-md px-3 py-2 leading-snug"
+        >
+          <div className="font-medium text-red-300">
+            {errRetryable ? 'Hit a snag — tap retry above.' : 'Order failed.'}
+          </div>
+          <div className="text-red-200/60 mt-0.5">{errMsg}</div>
+          {errRequestId && (
+            <div className="text-red-200/40 mt-1 font-mono text-[10px] tracking-tight">
+              Ref: {errRequestId}
+            </div>
+          )}
+        </div>
+      )}
+
       <button
-        onClick={() => { setOpen(false); setFramed(false); }}
+        onClick={() => {
+          abortRef.current?.abort();
+          // If we never reached render successfully, drop the outstanding
+          // order — it'll be garbage-collected on the server when the
+          // Stripe session expires.
+          outstandingOrderIdRef.current = null;
+          outstandingCheckoutUrlRef.current = null;
+          clearError();
+          setOpen(false);
+          setFramed(false);
+        }}
         disabled={loading}
         className="w-full py-1 text-xs text-white/30 hover:text-white/50 disabled:opacity-30"
       >

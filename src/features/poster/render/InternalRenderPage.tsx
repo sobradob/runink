@@ -65,13 +65,32 @@ export function InternalRenderPage({ token }: { token: string }) {
   }, [token]);
 
   const handleMapReady = useCallback((map: MaplibreMap) => {
-    // Double-idle pattern: first idle means the map responded to our tracks
-    // fitBounds, second idle means all tiles composited and no late repaint
-    // is pending. Set the ready flag only after the second idle fires.
-    const finish = () => {
+    // Three things must be true before Playwright screenshots:
+    //   1. MapLibre is fully idle (tiles composited, no pending repaint)
+    //   2. Web fonts are loaded — without this we race the font swap and
+    //      the screenshot captures fallback glyphs, drifting from preview
+    //   3. The StatsOverlay has painted (rAF buffer below)
+    //
+    // The double-idle pattern guards (1): first idle means MapLibre
+    // responded to our fitBounds, second idle means all tiles composited.
+    const finish = async () => {
       if (readyCheckedRef.current) return;
       readyCheckedRef.current = true;
-      // Small rAF buffer so the StatsOverlay has painted too.
+      // (2) Wait for all declared @font-face faces to be ready. Browsers
+      // expose this on document.fonts as a Promise<FontFaceSet> that
+      // resolves once every face that's been loaded has finished. With
+      // font-display: block the layout uses invisible glyphs until the
+      // font is ready, so this prevents fallback-glyph screenshots.
+      try {
+        if (document?.fonts?.ready) {
+          await document.fonts.ready;
+        }
+      } catch {
+        // Non-fatal: if fonts.ready rejects we still want to render rather
+        // than time out. The screenshot may have fallback glyphs in this
+        // edge case but a degraded poster beats a 503.
+      }
+      // (3) rAF buffer so StatsOverlay has composited too.
       requestAnimationFrame(() => {
         window.__POSTER_READY__ = true;
       });

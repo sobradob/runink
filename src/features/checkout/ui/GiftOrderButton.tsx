@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { createGiftOrder, getUploadUrl, uploadPosterPng, clearGiftContext } from '../services/checkoutApi';
+import { useEffect, useRef, useState } from 'react';
+import { createGiftOrder, getUploadUrl, uploadPosterPng, clearGiftContext, RenderError } from '../services/checkoutApi';
 import { GIFT_TIERS_CLIENT, PRINT_DIMENSIONS } from './tiers';
 import type { PosterDimensions } from '@/types/poster';
 
@@ -19,22 +19,45 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster, 
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [errRequestId, setErrRequestId] = useState<string | null>(null);
+  const [errRetryable, setErrRetryable] = useState(false);
+
+  // Carry the orderId across retries so we don't re-redeem the gift code
+  // on a render-only failure.
+  const outstandingOrderIdRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const tier = GIFT_TIERS_CLIENT.find((t) => t.id === tierId);
 
+  const clearError = () => {
+    setErrMsg(null);
+    setErrRequestId(null);
+    setErrRetryable(false);
+  };
+
   const handleClaim = async () => {
     if (!email) {
-      setError('Please enter your email address');
+      setErrMsg('Please enter your email address');
+      setErrRequestId(null);
+      setErrRetryable(false);
       return;
     }
 
     setLoading(true);
-    setError('');
+    clearError();
+    abortRef.current = new AbortController();
     try {
-      // Step 1: Create order from gift code
-      setStatus('Creating order...');
-      const { orderId } = await createGiftOrder({ giftCode, tierId, email, posterConfig });
+      // Step 1: Create order from gift code — skip if we already have an
+      // outstanding order from a prior failed render attempt.
+      let orderId = outstandingOrderIdRef.current;
+      if (!orderId) {
+        setStatus('Creating order...');
+        const created = await createGiftOrder({ giftCode, tierId, email, posterConfig });
+        orderId = created.orderId;
+        outstandingOrderIdRef.current = orderId;
+      }
 
       // Step 2+3: Render + upload. Prefer the combined submitPoster path
       // (which dispatches to server-side Playwright render behind a flag)
@@ -57,12 +80,22 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster, 
       }
 
       // Step 4: Clear gift cookie and redirect to success page
+      outstandingOrderIdRef.current = null;
       clearGiftContext();
       setStatus('Redirecting...');
       window.location.href = `/order/${orderId}/success`;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Gift order failed:', e);
-      setError(e.message || 'Failed to create order');
+      if (e instanceof RenderError) {
+        setErrMsg(e.message || 'Server render failed');
+        setErrRequestId(e.requestId ?? null);
+        setErrRetryable(e.retryable);
+      } else {
+        setErrMsg((e as Error)?.message || 'Failed to create order');
+        setErrRequestId(null);
+        setErrRetryable(true);
+      }
+      setStatus('');
       setLoading(false);
     }
   };
@@ -101,11 +134,20 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster, 
             disabled={loading || !email}
             className="w-full py-3 rounded-lg bg-emerald-600 text-white font-medium text-sm tracking-wider uppercase hover:bg-emerald-500 disabled:opacity-50 transition-all"
           >
-            {loading ? status || 'Processing...' : 'Confirm & Create Poster'}
+            {loading
+              ? status || 'Processing...'
+              : errMsg && errRetryable
+                ? 'Retry'
+                : 'Confirm & Create Poster'}
           </button>
           {!loading && (
             <button
-              onClick={() => setShowEmail(false)}
+              onClick={() => {
+                abortRef.current?.abort();
+                outstandingOrderIdRef.current = null;
+                clearError();
+                setShowEmail(false);
+              }}
               className="w-full py-1 text-xs text-white/30 hover:text-white/50"
             >
               Cancel
@@ -114,8 +156,21 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster, 
         </>
       )}
 
-      {error && (
-        <div className="text-red-400 text-xs text-center">{error}</div>
+      {errMsg && (
+        <div
+          role="alert"
+          className="text-[11px] text-red-300/80 bg-red-900/15 border border-red-500/20 rounded-md px-3 py-2 leading-snug"
+        >
+          <div className="font-medium text-red-300">
+            {errRetryable ? 'Hit a snag — tap retry above.' : 'Order failed.'}
+          </div>
+          <div className="text-red-200/60 mt-0.5">{errMsg}</div>
+          {errRequestId && (
+            <div className="text-red-200/40 mt-1 font-mono text-[10px] tracking-tight">
+              Ref: {errRequestId}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

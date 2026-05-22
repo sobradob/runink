@@ -120,26 +120,121 @@ export async function uploadPosterPng(uploadUrl: string, method: string, blob: B
 }
 
 /**
+ * Error thrown by renderPosterOnServer. Carries the server's requestId
+ * (when available) so user-facing error UI can show it for support
+ * correlation, and a `retryable` flag so callers can decide whether to
+ * surface a retry button vs a hard failure.
+ */
+export class RenderError extends Error {
+  readonly requestId: string | null;
+  readonly status: number | null;
+  readonly retryable: boolean;
+  constructor(message: string, opts: { requestId?: string | null; status?: number | null; retryable?: boolean } = {}) {
+    super(message);
+    this.name = 'RenderError';
+    this.requestId = opts.requestId ?? null;
+    this.status = opts.status ?? null;
+    this.retryable = opts.retryable ?? false;
+  }
+}
+
+/** Wait `ms` milliseconds, but bail early if the signal aborts. */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
+}
+
+/**
  * Server-side render path: POST the full poster payload, server runs
  * Playwright + Chromium to produce the PNG, uploads it to R2, and attaches
  * the URL to the order row. The old flow (renderPoster → getUploadUrl →
  * uploadPosterPng) is still available as a fallback.
+ *
+ * Resilience:
+ *   - 503 RENDER_BUSY (queue full) auto-retries with exponential backoff,
+ *     since the server's queue may free up within a few seconds.
+ *   - Network errors auto-retry — flaky mobile signal is the common case.
+ *   - 4xx (except 408/429) does NOT retry — those are payload/auth errors
+ *     that won't fix themselves.
+ *   - Client-side timeout of 60 s per attempt via AbortController; the
+ *     server's own timeout is 45 s so we add a buffer for the network leg.
+ *   - Errors carry the server requestId so support can grep production
+ *     logs for the exact attempt.
  */
+const RENDER_TIMEOUT_MS = 60_000;
+const RENDER_MAX_ATTEMPTS = 3;
+const RENDER_RETRY_BASE_MS = 1500;
+
 export async function renderPosterOnServer(
   orderId: string,
   payload: unknown,
   dimensions: { widthMm: number; heightMm: number; dpi: number; tierId?: string },
-): Promise<{ imageUrl: string }> {
-  const res = await fetch(`/api/render/order/${orderId}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ payload, dimensions }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(err.error || 'Server render failed');
+  callerSignal?: AbortSignal,
+): Promise<{ imageUrl: string; requestId?: string }> {
+  let lastErr: RenderError | null = null;
+  for (let attempt = 1; attempt <= RENDER_MAX_ATTEMPTS; attempt++) {
+    if (callerSignal?.aborted) {
+      throw new RenderError('Cancelled', { retryable: false });
+    }
+    // Per-attempt timeout. Linked to the caller's abort signal so a user
+    // who navigates away cancels the in-flight request cleanly.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), RENDER_TIMEOUT_MS);
+    const onCallerAbort = () => ac.abort();
+    callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
+
+    try {
+      const res = await fetch(`/api/render/order/${orderId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload, dimensions }),
+        signal: ac.signal,
+      });
+      if (res.ok) {
+        const body = await res.json() as { imageUrl: string; requestId?: string };
+        return body;
+      }
+      const errBody = await res.json().catch(() => ({} as { error?: string; requestId?: string }));
+      const requestId = errBody.requestId ?? null;
+      const retryable = res.status === 503 || res.status === 429 || res.status === 408;
+      lastErr = new RenderError(errBody.error || `Render failed (HTTP ${res.status})`, {
+        requestId, status: res.status, retryable,
+      });
+      if (!retryable) throw lastErr;
+    } catch (e) {
+      // Cleanup timer/listener regardless of which branch we exited via.
+      if ((e as DOMException)?.name === 'AbortError') {
+        // Caller aborted vs our own timeout — both surface as AbortError;
+        // distinguish via callerSignal.
+        if (callerSignal?.aborted) {
+          throw new RenderError('Cancelled', { retryable: false });
+        }
+        lastErr = new RenderError('Render timed out', { retryable: true });
+      } else if (e instanceof RenderError) {
+        if (!e.retryable) throw e;
+        lastErr = e;
+      } else {
+        // Network error (DNS, TCP reset, offline, etc.) — retry.
+        lastErr = new RenderError((e as Error)?.message || 'Network error', { retryable: true });
+      }
+    } finally {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener('abort', onCallerAbort);
+    }
+
+    // Don't sleep after the last attempt — caller wants the failure now.
+    if (attempt < RENDER_MAX_ATTEMPTS) {
+      const backoff = RENDER_RETRY_BASE_MS * attempt; // 1.5s, 3s
+      try { await delay(backoff, callerSignal); } catch { /* aborted */ }
+    }
   }
-  return res.json();
+  throw lastErr ?? new RenderError('Render failed after retries', { retryable: false });
 }
 
 // === Gift context persistence (cookie + URL param fallback) ===
