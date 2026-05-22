@@ -17,7 +17,7 @@ function presetForTier(tierId: string): typeof POSTER_PRESETS[number] {
   }
   return POSTER_PRESETS[0];
 }
-import { getDefaultTheme } from '@/features/theme/infrastructure/themeRepository';
+import { getDefaultTheme, getThemeById } from '@/features/theme/infrastructure/themeRepository';
 
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
 import { MapPreview } from '@/features/map/ui/MapPreview';
@@ -44,6 +44,14 @@ import {
   type GiftContext,
 } from '@/features/checkout/services/checkoutApi';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
+import { clearDraft, draftKey, readDraft, usePersistDraft } from '@/shared/hooks/usePersistedDraft';
+
+interface PersistedDraft {
+  config: PosterConfig;
+  themeId: string;
+  showKmMarkers: boolean;
+  showStartFinish: boolean;
+}
 
 interface PosterEditorProps {
   activity?: ActivitySummary;
@@ -97,7 +105,25 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
 }
 
 export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBack, giftContext }: PosterEditorProps) {
-  const [config, setConfig] = useState<PosterConfig>({
+  // Stable draft key derived from mode + activity-id-set. Different
+  // activities get different drafts; reopening the same set restores
+  // edit state across refresh/tab-kill.
+  const persistenceKey = useMemo(() => {
+    const ids = mode === 'individual'
+      ? (activity?.id ? [activity.id] : [])
+      : (activities?.map((a) => a.id) ?? []);
+    return draftKey(mode, ids);
+  }, [mode, activity?.id, activities]);
+
+  // Read once on mount (lazy initialiser) so the first render already
+  // reflects the persisted state — no flash of defaults.
+  const restored = useMemo<PersistedDraft | null>(
+    () => readDraft<PersistedDraft>(persistenceKey),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [], // intentionally one-shot: switching activities should re-mount this component
+  );
+
+  const [config, setConfig] = useState<PosterConfig>(() => restored?.config ?? {
     mode,
     themeId: 'noir',
     dimensions: giftContext ? presetForTier(giftContext.tier) : POSTER_PRESETS[0],
@@ -116,10 +142,24 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     markers: [],
   });
 
-  const [theme, setTheme] = useState<Theme>(getDefaultTheme());
+  // Theme is derived from themeId — we persist the id, not the whole
+  // theme object (which could change shape on a deploy and leave stale
+  // colour data on disk). On mount, if the restored draft pointed at a
+  // theme that no longer exists, getThemeById falls back to the default.
+  const [theme, setTheme] = useState<Theme>(() =>
+    restored?.themeId ? getThemeById(restored.themeId) : getDefaultTheme(),
+  );
   const [exporting, setExporting] = useState(false);
-  const [showKmMarkers, setShowKmMarkers] = useState(false);
-  const [showStartFinish, setShowStartFinish] = useState(true);
+  const [showKmMarkers, setShowKmMarkers] = useState<boolean>(restored?.showKmMarkers ?? false);
+  const [showStartFinish, setShowStartFinish] = useState<boolean>(restored?.showStartFinish ?? true);
+
+  // Persist the editable subset to localStorage with a 500ms debounce
+  // (see usePersistDraft for details). On pagehide — the mobile-killable
+  // moment — a final synchronous flush runs from inside the hook.
+  usePersistDraft<PersistedDraft>(
+    persistenceKey,
+    { config, themeId: theme.id, showKmMarkers, showStartFinish },
+  );
 
   // Marker placement state
   const [placingIcon, setPlacingIcon] = useState<MarkerIcon | null>(null);
@@ -312,6 +352,10 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         dpi: dims.dpi,
         tierId: dims.tierId,
       });
+      // Order successfully submitted — the user is about to leave for
+      // Stripe and won't be back to this editor for this poster. Clear
+      // the draft so it doesn't shadow the user's NEXT customization.
+      clearDraft(persistenceKey);
       return;
     }
 
@@ -319,7 +363,8 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     const blob = await renderPoster(printDimensions);
     const { url, method, local } = await getUploadUrl(orderId);
     await uploadPosterPng(url, method, blob, orderId, local);
-  }, [buildRenderOptions, config.dimensions, config.showStats, config.showCoordinates, mode, activity, activities, renderPoster]);
+    clearDraft(persistenceKey);
+  }, [buildRenderOptions, config.dimensions, config.showStats, config.showCoordinates, mode, activity, activities, renderPoster, persistenceKey]);
 
   const handleExport = useCallback(async () => {
     if (tracks.length === 0) return;
