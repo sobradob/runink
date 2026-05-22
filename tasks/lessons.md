@@ -1,5 +1,17 @@
 # Lessons Learned
 
+## 2026-05-22: Three things must be true before a server-side render screenshots
+**Context:** The server-side Playwright render shipped in this session signaled `__POSTER_READY__` after MapLibre double-idle, but the screenshot could still race with the web-font swap and capture fallback glyphs. The problem manifests subtly — text is the *right shape* but not the *right font*, easy to miss until print.
+**Prevention:** Before letting Playwright screenshot, await ALL of:
+1. `map.once('idle')` twice (tile composite + no pending repaint)
+2. `await document.fonts.ready` (font swap settled)
+3. one `requestAnimationFrame` (StatsOverlay composited)
+Set `font-display: block` on every `@font-face` so layout uses invisible glyphs until the font lands, preventing fallback-glyph FOUT on slow networks.
+
+## 2026-05-22: Retry on the client, idempotency on the server
+**Context:** A render submit that fails on a transient 503 (queue busy) used to throw, leaving the user stranded after the order was already created. Naïve retry would double-create orders if the failure happened before render.
+**Prevention:** Make the *first* mutation (createDirectOrder) idempotent at the client by stashing the orderId in a ref. Subsequent retries reuse the same id so the server sees one order. The server endpoint should also be idempotent at the storage layer — `orders/${orderId}/poster.png` is a stable key so re-rendering overwrites. AbortController on the client gives a clean cancel path for unmount/navigate-away.
+
 ## 2026-05-22: Cross-device render parity comes from one renderer, not careful coding
 **Failure mode:** A client-side Canvas-2D re-implementation (`renderPosterToBlob`) of the React/MapLibre preview drifted from the preview over time — different fonts, line caps, gradient opacities. Compounded by iOS Safari's 16M-px canvas cap. Paying customers received prints that didn't match what they customised.
 **Detection:** User-visible — mobile orders looked different from desktop orders, and prints looked different from previews.

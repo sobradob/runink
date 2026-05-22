@@ -27,13 +27,25 @@
 
 ## QA / observability (set up before customer volume grows)
 
-- [ ] Add `/api/render/health` to external uptime monitoring (1-min interval, page on failure)
-- [ ] Add a Docker render smoke job to `.github/workflows/build.yml` (build image, run container, POST fixed payload to `/api/render/_smoke`, assert PNG returned, gated on `ENABLE_SMOKE_ENDPOINTS=true` in CI only)
-- [ ] Add a visual regression check: screenshot fixed-payload render, diff against committed golden PNG with `pixelmatch` at 1% threshold
-- [ ] Bundle web fonts and serve via `@font-face` with `font-display: block` so the mobile preview matches the Linux Chromium print
-- [ ] Add Sentry (or equivalent) on both client and server — capture `render.failed` events with `requestId`
-- [ ] Build an admin "re-render this order" button so support requests don't require a deploy
-- [ ] Add a long-press debug overlay on the logo: user agent, devicePixelRatio, viewport, MapLibre version, last render request ID, build SHA
+- [ ] Add `/api/render/health` to external uptime monitoring (1-min interval, page on failure). Endpoint is now caching-friendly: cached for 60 s, invalidates if browser disconnects.
+- [x] **CI smoke render workflow** — `.github/workflows/smoke-render.yml`: builds Docker image, boots against ephemeral Postgres, runs `scripts/smoke-render.ts` inside the container, asserts >50 KB PNG. Path-filtered so docs-only PRs don't burn 5-min Docker builds.
+- [ ] Add a visual regression check: screenshot fixed-payload render, diff against committed golden PNG with `pixelmatch` at 1% threshold. Extend the smoke-render workflow with an additional assertion.
+- [x] **Web fonts served via `@font-face` with `font-display: block`** — already bundled via `@fontsource/*`, declaration in `src/styles/index.css`. Combined with `document.fonts.ready` await in InternalRenderPage so prints never capture fallback glyphs.
+- [ ] Add Sentry (or equivalent) on both client and server — capture `render.failed` events with `requestId`. The client already plumbs the requestId through `RenderError`; just needs a sink.
+- [ ] Build an admin "re-render this order" endpoint. Needs `poster_config` JSON to be persisted on the order row (already is) PLUS the resolved GPS tracks (not yet — would need to refetch from Strava at re-render time).
+- [x] **Long-press diagnostic overlay** — `DiagnosticOverlay` on the RunInk logo (600 ms). Build SHA inlined into bundle via vite `define`, last render requestId via `shared/diagnostics/renderTelemetry` singleton, tap-to-copy report.
+
+## Resilience improvements shipped 2026-05-22 session
+
+- [x] **Server-render path live** — Playwright in Docker, 2 GB instance, both flags on in production. /api/render/health green.
+- [x] **Render submit retries** — 3 attempts with exponential backoff on 503/network errors; AbortController per attempt; RenderError carries requestId + retryable flag.
+- [x] **Order UI error surface** — retry button, requestId for support correlation, draft preserved on transient failure.
+- [x] **Root AppErrorBoundary** — React crashes land on a recovery screen with reload + copy-stack instead of a blank dark void.
+- [x] **localStorage draft persistence** — PosterEditor state survives refresh/tab-kill, keyed by mode + activity-set, versioned envelope, flushed on pagehide.
+- [x] **Offline toast** — non-modal indicator on `navigator.onLine` flip.
+- [x] **Render progress bar** — logistic curve + live elapsed timer during 2–7 s server render; replaces static text.
+- [x] **Code-split non-editor routes** — Gift/Redeem/Success/Status/Privacy/InternalRender are React.lazy chunks. Initial bundle 1.34 MB → 1.31 MB; unvisited routes are zero-byte.
+- [x] **Cheap /api/render/health** — 60 s cache + isConnected check. Sub-ms in between real verifications.
 
 ## Completed
 
