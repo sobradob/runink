@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createGiftOrder, getUploadUrl, uploadPosterPng, clearGiftContext, RenderError } from '../services/checkoutApi';
 import { GIFT_TIERS_CLIENT, PRINT_DIMENSIONS } from './tiers';
+import { RenderProgress } from '@/shared/ui/RenderProgress';
 import type { PosterDimensions } from '@/types/poster';
 
 interface GiftOrderButtonProps {
@@ -140,6 +141,7 @@ export function GiftOrderButton({ giftCode, tierId, posterConfig, renderPoster, 
                 ? 'Retry'
                 : 'Confirm & Create Poster'}
           </button>
+          <RenderProgress active={loading && status === 'Rendering poster...'} />
           {!loading && (
             <button
               onClick={() => {

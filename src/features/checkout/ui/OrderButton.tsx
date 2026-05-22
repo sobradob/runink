@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createDirectOrder, getUploadUrl, uploadPosterPng, RenderError } from '../services/checkoutApi';
 import { FRAMED_TIER, getTier, PRINT_DIMENSIONS } from './tiers';
 import { COMING_SOON, ComingSoonPopup } from './ComingSoon';
+import { RenderProgress } from '@/shared/ui/RenderProgress';
 import type { PosterDimensions } from '@/types/poster';
 
 interface OrderButtonProps {
@@ -219,6 +220,8 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
             ? 'Retry'
             : 'Proceed to Payment'}
       </button>
+
+      <RenderProgress active={loading && status === 'Rendering poster...'} />
 
       {errMsg && (
         <div

@@ -11,6 +11,7 @@ import { OrderSuccessPage } from '@/features/checkout/ui/OrderSuccessPage';
 import { OrderStatusPage } from '@/features/checkout/ui/OrderStatusPage';
 import { InternalRenderPage } from '@/features/poster/render/InternalRenderPage';
 import { DiagnosticOverlay, useLongPress } from '@/features/diagnostics/DiagnosticOverlay';
+import { OfflineToast } from '@/features/diagnostics/OfflineToast';
 import { getGiftContext, persistGiftContext, type GiftContext } from '@/features/checkout/services/checkoutApi';
 
 /** Internal render surface for server-side Playwright poster capture.
@@ -73,6 +74,7 @@ export default function App() {
     <>
       <MainApp logoLongPress={logoLongPress} />
       <DiagnosticOverlay open={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+      <OfflineToast />
     </>
   );
 }
