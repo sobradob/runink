@@ -14,7 +14,8 @@ import { renderRouter } from './routes/render.js';
 import { initDb } from './lib/db.js';
 import { LOCAL_DIR } from './lib/storage.js';
 import { closeBrowser, verifyChromium } from './lib/poster-renderer.js';
-import { log } from './lib/logger.js';
+import { log, newRequestId } from './lib/logger.js';
+import { reportServerError } from './lib/error-reporter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -79,10 +80,72 @@ if (IS_PRODUCTION || fs.existsSync(DIST_DIR)) {
   console.log(`Serving frontend from ${DIST_DIR}`);
 }
 
+// Last-resort Express error handler — catches anything a route handler
+// threw without its own try/catch (Express 5 auto-forwards async
+// rejections here). Without this, an uncaught throw in a handler logs
+// to stderr and the client request times out silently. With it: we
+// return a structured 500 with a requestId, log the stack, and emit a
+// Mixpanel `server_error` event so the same invisible bug shows up in
+// dashboards instead of only being discoverable by grepping logs.
+//
+// Must be registered AFTER all routes including the SPA fallback. The
+// 4-arg signature is how Express identifies this as an error handler
+// rather than regular middleware.
+app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    // Headers already gone out — we can't change the response, just
+    // make sure the failure still surfaces in Mixpanel.
+    reportServerError(err, {
+      scope: 'express.error_handler',
+      method: req.method,
+      route: req.originalUrl,
+      httpStatus: res.statusCode,
+      extra: { headers_sent: true },
+    });
+    return next(err);
+  }
+  const requestId = newRequestId();
+  log.error('Uncaught route error', {
+    scope: 'express.error_handler',
+    requestId,
+    method: req.method,
+    path: req.originalUrl,
+    error: err.message,
+    stack: err.stack,
+  });
+  reportServerError(err, {
+    scope: 'express.error_handler',
+    method: req.method,
+    route: req.originalUrl,
+    httpStatus: 500,
+    requestId,
+  });
+  res.status(500).json({ error: 'Internal server error', requestId });
+});
+
 // Initialize database tables before accepting requests
 initDb().catch(err => {
   console.error('FATAL: Database initialization failed:', err);
   process.exit(1);
+});
+
+// Process-level safety net for errors that escape every Express handler:
+//   - uncaughtException: synchronous throw from a callback (rare in async
+//     code, common from third-party libs)
+//   - unhandledRejection: a Promise rejected with no .catch attached
+// Without these, Node 22's default behaviour is to crash the process on
+// uncaughtException and (since Node 15) on unhandledRejection too. DO
+// will restart us, but the failure mode would be invisible — no
+// customer-impact signal in Mixpanel. We log + report, then let DO's
+// supervisor handle the restart if appropriate.
+process.on('uncaughtException', (err) => {
+  log.error('uncaughtException', { scope: 'process', error: err.message, stack: err.stack });
+  reportServerError(err, { scope: 'process.uncaughtException' });
+});
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  log.error('unhandledRejection', { scope: 'process', error: err.message, stack: err.stack });
+  reportServerError(err, { scope: 'process.unhandledRejection' });
 });
 
 // Close the Playwright browser pool cleanly on shutdown so Chromium doesn't

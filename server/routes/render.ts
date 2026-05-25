@@ -30,6 +30,7 @@ import {
   type RenderPayload,
 } from '../lib/poster-renderer.js';
 import { log, newRequestId } from '../lib/logger.js';
+import { reportServerError } from '../lib/error-reporter.js';
 
 export const renderRouter = Router();
 
@@ -228,6 +229,7 @@ renderRouter.post('/order/:orderId', renderLimiter, async (req, res) => {
     dpi: dimensions.dpi,
   });
 
+  const renderStarted = Date.now();
   try {
     const port = parseInt(process.env.PORT || process.env.SERVER_PORT || '8080', 10);
     const internalBaseUrl = `http://127.0.0.1:${port}`;
@@ -260,12 +262,25 @@ renderRouter.post('/order/:orderId', renderLimiter, async (req, res) => {
     });
     res.json({ imageUrl: publicUrl, requestId });
   } catch (err) {
+    const durationMs = Date.now() - renderStarted;
     if (err instanceof RenderBusyError) {
       log.warn('Render queue full', {
         scope: 'render.order',
         requestId,
         orderId,
         outcome: 'rejected',
+      });
+      // Queue saturation is a capacity signal, not a code bug — but
+      // worth tracking so we can see "we hit the cap N times today"
+      // in Mixpanel without grepping logs.
+      reportServerError(err, {
+        scope: 'render.order',
+        method: 'POST',
+        route: '/api/render/order/:orderId',
+        httpStatus: 503,
+        requestId,
+        durationMs,
+        extra: { order_id: orderId, reason: 'queue_full' },
       });
       return res.status(503).json({ error: 'Server busy, please retry in a moment', requestId });
     }
@@ -275,6 +290,25 @@ renderRouter.post('/order/:orderId', renderLimiter, async (req, res) => {
       orderId,
       outcome: 'error',
       error: (err as Error).message,
+    });
+    // Real render failure — the client's `client_error { error_source:
+    // 'render', request_id }` event will land in Mixpanel at the same
+    // time; joining on request_id gives you a complete picture of
+    // what happened on both sides.
+    reportServerError(err, {
+      scope: 'render.order',
+      method: 'POST',
+      route: '/api/render/order/:orderId',
+      httpStatus: 500,
+      requestId,
+      durationMs,
+      extra: {
+        order_id: orderId,
+        width_mm: dimensions.widthMm,
+        height_mm: dimensions.heightMm,
+        dpi: dimensions.dpi,
+        track_count: payload.tracks.length,
+      },
     });
     res.status(500).json({ error: 'Failed to render poster', requestId });
   }

@@ -30,6 +30,34 @@
 
 **Dedup behaviour:** Identical errors (same source + name + message + first stack line) within 30 s are suppressed locally. The first occurrence IS sent; later ones increment an in-memory counter that nothing currently reads. If you need accurate "fired N times" counts during a burst, query Mixpanel's event count directly — don't rely on a per-event counter property.
 
+## 2026-05-22: Mixpanel `server_error` event schema (server-side companion)
+**Context:** Server-side errors flow through `server/lib/error-reporter.ts`'s `reportServerError(err, ctx)` and land in Mixpanel as `server_error` events. Different event name from the client (`client_error`) so dashboards stay unambiguous; **join on `request_id`** to see both sides of the same failed request.
+
+**Property reference:**
+| Property | Type | Notes |
+|---|---|---|
+| `error_name` | string | e.g. `StravaApiError`, `RenderBusyError`, `TypeError` |
+| `error_message` | string | Truncated to 500 chars |
+| `error_scope` | string | Where in the code, e.g. `render.order`, `activities`, `express.error_handler`, `process.uncaughtException` |
+| `request_id` | string \| null | Same ID returned to the client — grep DO logs OR join to `client_error` events in Mixpanel |
+| `http_status` | number \| null | Status code we returned to the client |
+| `route` | string \| null | Express route pattern, e.g. `/api/render/order/:orderId` |
+| `method` | string \| null | HTTP method |
+| `duration_ms` | number \| null | How long the failed operation took |
+| `env` | string | `production` / `development` |
+| `node_version` | string | e.g. `v20.18.0` |
+| `stack` | string | Truncated to 2000 chars |
+
+**Coverage:**
+- Explicit calls at 5xx paths in `routes/render.ts` (render failures) and `routes/activities.ts` (Strava failures, including the missing-scope 403)
+- Express last-resort error handler in `server/index.ts` — catches anything that threw without a try/catch
+- `process.on('uncaughtException')` and `process.on('unhandledRejection')` — catches anything that escaped Express entirely
+
+**Useful joined funnels:**
+- "Render failed end-to-end" — count distinct `request_id` where BOTH `client_error{source=render}` AND `server_error{scope=render.order}` fired. If only server fires, the client retried successfully on attempt 2/3. If only client fires, network died before the request landed.
+- "Strava is having a bad day" — count `server_error{error_scope=activities}` by hour, broken down by `error_name`. A spike with `error_name=StravaApiError` and no change to our deploy = problem at Strava's end.
+- "Uncaught server bug" — `server_error{error_scope IN ('express.error_handler', 'process.uncaughtException', 'process.unhandledRejection')}`. Anything here is by definition a latent bug that escaped every guard — page yourself on it.
+
 ## 2026-05-22: Strava OAuth approval_prompt=auto is a foot-gun for required scopes
 **Failure mode:** First real customer connected Strava, name showed in header, then every activities fetch returned 500 (server got 401 from Strava). Strava had issued a token without `activity:read_all` because the user unchecked the "View data about your activities" box on the consent screen. With `approval_prompt=auto` the user can never re-grant — Strava silently reissues the prior narrower scope on every subsequent connect.
 **Detection:** Production logs showed `Strava API error: 401` ~80 ms after every fetch. The fast turnaround (not a timeout) plus the user being freshly-connected pointed at scope rather than expiry. Confirmed by reading Strava's docs about `approval_prompt`.

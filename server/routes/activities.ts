@@ -3,6 +3,7 @@ import { getSession, updateSession } from '../lib/session.js';
 import { fetchAllGpsActivities, getValidAccessToken, StravaApiError } from '../lib/strava-client.js';
 import { stravaToActivitySummary, stravaToTrackData } from '../lib/transform.js';
 import type { ActivitySummary, TrackData } from '../lib/transform.js';
+import { reportServerError } from '../lib/error-reporter.js';
 
 export const activitiesRouter = Router();
 
@@ -93,6 +94,16 @@ activitiesRouter.get('/activities', async (req, res) => {
     if (err instanceof StravaApiError) {
       console.error(`Strava API failure: ${err.status} ${err.body.slice(0, 200)}`);
       if (err.isMissingScope()) {
+        // Track scope failures explicitly — this is a fixable UX issue
+        // (the connect-with-checkbox loop). Mixpanel can show "X users
+        // hit this today" before they DM you.
+        reportServerError(err, {
+          scope: 'activities',
+          method: 'GET',
+          route: '/api/strava/activities',
+          httpStatus: 403,
+          extra: { code: 'STRAVA_MISSING_SCOPE', strava_status: err.status },
+        });
         // The token doesn't carry activity:read_all. The user needs to
         // reconnect with the checkbox enabled. 403 + a typed code lets
         // the client show a "please reconnect" prompt instead of a
@@ -103,6 +114,13 @@ activitiesRouter.get('/activities', async (req, res) => {
         });
       }
       if (err.status === 401) {
+        reportServerError(err, {
+          scope: 'activities',
+          method: 'GET',
+          route: '/api/strava/activities',
+          httpStatus: 401,
+          extra: { code: 'STRAVA_SESSION_INVALID', strava_status: err.status },
+        });
         // Token rejected for some other reason (revoked, app
         // restricted). Treat as logged-out — the session is no longer
         // useful, force a reconnect.
@@ -111,6 +129,26 @@ activitiesRouter.get('/activities', async (req, res) => {
           code: 'STRAVA_SESSION_INVALID',
         });
       }
+      // Other Strava failure (5xx, rate limit, etc.) — track separately
+      // so we can see "Strava had a bad hour" without it being conflated
+      // with our own bugs.
+      reportServerError(err, {
+        scope: 'activities',
+        method: 'GET',
+        route: '/api/strava/activities',
+        httpStatus: 500,
+        extra: { strava_status: err.status },
+      });
+    } else {
+      // Non-Strava error (DB, JSON parse, transform crash). This is
+      // the most useful category for Mixpanel — it's what surfaces
+      // bugs in OUR code, not in Strava's responses.
+      reportServerError(err, {
+        scope: 'activities',
+        method: 'GET',
+        route: '/api/strava/activities',
+        httpStatus: 500,
+      });
     }
     console.error('Failed to fetch Strava activities:', (err as Error)?.message);
     res.status(500).json({ error: 'Failed to fetch activities from Strava' });
