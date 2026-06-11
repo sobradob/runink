@@ -209,6 +209,15 @@ const GPS_ACTIVITY_TYPES = new Set([
   'Ride', 'VirtualRide', 'MountainBikeRide', 'GravelRide', 'EBikeRide',
 ]);
 
+export interface GpsActivitiesResult {
+  activities: StravaActivity[];
+  /** True iff we saw Strava's last page (raw page came back short or empty).
+   *  False when we stopped early — maxPages reached or rate-limited — meaning
+   *  more activities exist upstream. Must be judged on the RAW page size:
+   *  the GPS-filtered count is almost always < per_page even on full pages. */
+  complete: boolean;
+}
+
 /**
  * Fetch GPS-based activities from Strava, paginating until exhausted or maxPages
  * reached. Pass maxPages=1 for a fast first-page load (up to 200 most recent).
@@ -217,11 +226,12 @@ const GPS_ACTIVITY_TYPES = new Set([
 export async function fetchAllGpsActivities(
   accessToken: string,
   options: { maxPages?: number } = {}
-): Promise<StravaActivity[]> {
+): Promise<GpsActivitiesResult> {
   const { maxPages = Infinity } = options;
   const allActivities: StravaActivity[] = [];
   let page = 1;
   const perPage = 200; // Max allowed by Strava
+  let complete = false;
 
   while (page <= maxPages) {
     const url = `${STRAVA_API_BASE}/athlete/activities?page=${page}&per_page=${perPage}`;
@@ -246,7 +256,10 @@ export async function fetchAllGpsActivities(
     }
 
     const activities: StravaActivity[] = await res.json();
-    if (activities.length === 0) break;
+    if (activities.length === 0) {
+      complete = true;
+      break;
+    }
 
     // Filter to GPS-based activity types
     const gpsActivities = activities.filter(
@@ -256,9 +269,12 @@ export async function fetchAllGpsActivities(
 
     console.log(`  Strava page ${page}: ${activities.length} total, ${gpsActivities.length} GPS activities`);
 
-    if (activities.length < perPage) break; // Last page
+    if (activities.length < perPage) {
+      complete = true; // Last page
+      break;
+    }
     page++;
   }
 
-  return allActivities;
+  return { activities: allActivities, complete };
 }
