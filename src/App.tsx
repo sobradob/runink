@@ -114,7 +114,7 @@ interface MainAppProps {
 function MainApp({ logoLongPress }: MainAppProps) {
   const {
     index, loading, error, authIssue,
-    stravaAuth, stravaLoading, stravaTracksMap,
+    stravaAuth, stravaLoading, stravaTracksMap, syncingMore,
     connectStrava, disconnectStrava, refreshStrava,
   } = useActivityIndex();
 
@@ -356,7 +356,18 @@ function MainApp({ logoLongPress }: MainAppProps) {
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden">
+      <main className="relative flex-1 overflow-hidden">
+        {/* Background sync indicator: the quick first page is on screen but
+            older activities are still streaming in. Floating pill so the
+            browser layout doesn't shift when it appears/disappears. */}
+        {syncingMore && !stravaLoading && (
+          <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-[#0a0a0a]/90 px-4 py-2 text-xs text-white/60 shadow-lg">
+              <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
+              Syncing the rest of your runs from Strava…
+            </div>
+          </div>
+        )}
         {(loading || stravaLoading) && (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">

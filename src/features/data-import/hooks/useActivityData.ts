@@ -27,6 +27,9 @@ export function useActivityIndex() {
   const [stravaAuth, setStravaAuth] = useState<StravaAuthStatus>({ connected: false });
   const [loading, setLoading] = useState(true);
   const [stravaLoading, setStravaLoading] = useState(false);
+  // True while the background full fetch runs after a partial quick load —
+  // the UI is usable but older activities are still arriving.
+  const [syncingMore, setSyncingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Authorization-specific issue surfaced to the UI for targeted recovery
   // prompts (e.g. "you need to tick the activities checkbox"). Separate
@@ -82,6 +85,7 @@ export function useActivityIndex() {
             if (quick.partial) {
               // Background full fetch — don't block the UI. Errors here are soft:
               // the user still has the first 200 activities to work with.
+              setSyncingMore(true);
               loadStravaActivities({ signal: abortController.signal })
                 .then((full) => {
                   if (abortController.signal.aborted) return;
@@ -91,6 +95,10 @@ export function useActivityIndex() {
                 .catch((e) => {
                   if (abortController.signal.aborted) return;
                   console.warn('[strava] Background full-load failed, keeping quick results:', e.message);
+                })
+                .finally(() => {
+                  if (abortController.signal.aborted) return;
+                  setSyncingMore(false);
                 });
             }
           } catch (e: unknown) {
@@ -175,6 +183,7 @@ export function useActivityIndex() {
     authIssue,
     stravaAuth,
     stravaLoading,
+    syncingMore,
     stravaTracksMap: tracksMap,
     connectStrava,
     disconnectStrava: disconnectStravaHandler,
