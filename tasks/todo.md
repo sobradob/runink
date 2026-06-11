@@ -1,5 +1,48 @@
 # RunInk — TODO
 
+## In progress: mobile black-export fix (2026-06-10)
+
+Goal: free PNG exports on mobile come out black (map missing, stats sliver at bottom).
+Root cause: capture renderer's blank-detection misses valid-but-black snapshots (iOS WebGL
+context eviction); legacy canvas fallback lacks the iOS 16M-px area cap and renders an
+offscreen MapLibre at full print resolution. Acceptance: free exports render via the
+server Playwright path (device-independent), black snapshots are detected client-side,
+and no client fallback can create an oversized canvas.
+
+- [x] Diagnose root cause (see .claude/napkin.md)
+- [x] Server: add `POST /api/render/export` — renders payload, streams PNG back (no order/R2)
+- [x] Client API: `renderExportOnServer()` sharing retry/timeout machinery with paid path
+- [x] PosterEditor: free export tries server first → capture → legacy canvas; watermark all
+- [x] captureRenderer: pixel-sample snapshot for uniform/black instead of only `data:,`
+- [x] Legacy renderer: add MAX_CANVAS_AREA (16M px) cap mirroring captureRenderer
+- [x] Verify: tsc -b, vite build, lint touched files, local smoke render of export endpoint
+
+### Results (2026-06-10)
+
+- `POST /api/render/export` (server/routes/render.ts): session-gated, rate-limited
+  (30/15min/IP), same validation as the order route (extracted into
+  `validateRenderBody()`), streams PNG with `X-Render-Request-Id` header.
+- `renderExportOnServer()` (checkoutApi.ts): retry loop extracted into
+  `fetchRenderWithRetry()` shared with `renderPosterOnServer` (behavior unchanged).
+- PosterEditor free-export chain: server → capture → legacy canvas; watermark applied
+  to whichever blob wins; `export_completed` now carries `render_path` for Mixpanel
+  rollout verification; payload building extracted into `buildServerPayload()` shared
+  with the paid path.
+- captureRenderer: `isCanvasBlank()` downsamples the map canvas to 48×48 and throws
+  MAP_BLANK when every pixel is (near-)identical — catches iOS context-eviction black.
+- Legacy renderer: 16M-px area cap added (note: also caps flag-off paid prints; a
+  downscaled print beats a black one, and prod uses server render anyway).
+- New `scripts/smoke-export.ts` + shared `scripts/smoke-fixture.ts`; dev-only
+  `/_smoke-session` endpoint mints a fake session; CI workflow now runs the export
+  smoke too.
+- Verified: `tsc -b` clean; `vite build` clean (1.32 MB, no regression); eslint on
+  touched files shows only pre-existing baseline issues; `smoke-render.ts` and
+  `smoke-export.ts` both pass locally (byte-identical 165 KB PNG, export in 1.8 s);
+  export PNG visually correct (route + styled stats); watermark smoke passes;
+  endpoint 401s without session.
+- NOT yet done: commit/push/deploy; on-device confirmation from a real phone after
+  deploy (check `export_completed.render_path === 'server'` in Mixpanel).
+
 ## Bugs
 
 - [x] **PNG export doesn't match preview** — Fixed: use pixelRatio scaling instead of container resize

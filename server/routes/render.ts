@@ -61,6 +61,60 @@ const renderLimiter = rateLimit({
   message: { error: 'Too many render requests, please slow down' },
 });
 
+// Free exports are more frequent than orders (users iterate on themes), but
+// each render still ties up a Chromium context for 2-7 s. 30/15 min per IP
+// covers an enthusiastic editing session; the client falls back to local
+// capture rendering when limited.
+const exportLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many export requests, please slow down' },
+});
+
+type RenderDimensions = { widthMm: number; heightMm: number; dpi: number; tierId?: string };
+
+/** Shared body validation for the order and export render routes. Returns the
+ *  parsed payload/dimensions, or the HTTP error to send. */
+function validateRenderBody(body: unknown):
+  | { ok: true; payload: RenderPayload; dimensions: RenderDimensions; serialisedBytes: number }
+  | { ok: false; status: number; error: string; serialisedBytes?: number } {
+  const { payload, dimensions } = (body ?? {}) as {
+    payload?: RenderPayload;
+    dimensions?: RenderDimensions;
+  };
+
+  if (!payload || !dimensions) {
+    return { ok: false, status: 400, error: 'Missing payload or dimensions' };
+  }
+  if (
+    typeof dimensions.widthMm !== 'number' ||
+    typeof dimensions.heightMm !== 'number' ||
+    typeof dimensions.dpi !== 'number' ||
+    dimensions.widthMm < 50 || dimensions.heightMm < 50 ||
+    dimensions.widthMm > 1500 || dimensions.heightMm > 1500 ||
+    dimensions.dpi < 72 || dimensions.dpi > 600
+  ) {
+    return { ok: false, status: 400, error: 'Invalid dimensions' };
+  }
+
+  // Belt-and-braces size limits — payload lives in memory for 60s and is
+  // walked by the Playwright browser. A run-away payload would OOM the box.
+  if (!Array.isArray(payload.tracks) || payload.tracks.length > 500) {
+    return { ok: false, status: 413, error: 'Too many tracks' };
+  }
+  // Catch deeply-nested theme/config blobs that slip past the tracks check.
+  // JSON.stringify is the most accurate measure of the in-memory + serialised
+  // payload footprint; the 8 MB body-parser limit is a coarser pre-filter.
+  const serialisedBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+  if (serialisedBytes > MAX_PAYLOAD_BYTES) {
+    return { ok: false, status: 413, error: 'Payload too large', serialisedBytes };
+  }
+
+  return { ok: true, payload, dimensions, serialisedBytes };
+}
+
 // Separate, higher-throughput limiter for the loopback payload endpoint.
 // Only the internal Chromium hits this in practice, but the token is the only
 // guard — a brute-forcer who can spam endpoints could try to land within a
@@ -114,6 +168,20 @@ renderRouter.get('/health', async (_req, res) => {
 });
 
 if (SMOKE_ENDPOINTS_ENABLED) {
+  // Dev helper: mint a fake Strava session so smoke scripts can exercise
+  // session-gated routes (e.g. /export) end-to-end without OAuth.
+  renderRouter.post('/_smoke-session', async (req, res) => {
+    const { createSession } = await import('../lib/session.js');
+    const sessionId = createSession({
+      accessToken: 'smoke-token',
+      refreshToken: 'smoke-refresh',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      athleteId: 0,
+      athleteName: 'Smoke Test',
+    });
+    res.json({ sessionId });
+  });
+
   // Dev helper: seed a payload, get a token back. Useful for Playwright
   // inspection scripts that want to navigate to the internal page directly.
   renderRouter.post('/_smoke-seed', (req, res) => {
@@ -179,44 +247,20 @@ renderRouter.post('/order/:orderId', renderLimiter, async (req, res) => {
     return res.status(404).json({ error: 'Order not found', requestId });
   }
 
-  const { payload, dimensions } = req.body as {
-    payload?: RenderPayload;
-    dimensions?: { widthMm: number; heightMm: number; dpi: number; tierId?: string };
-  };
-
-  if (!payload || !dimensions) {
-    return res.status(400).json({ error: 'Missing payload or dimensions', requestId });
+  const validated = validateRenderBody(req.body);
+  if (!validated.ok) {
+    if (validated.error === 'Payload too large') {
+      log.warn('Payload rejected — too large', {
+        scope: 'render.order',
+        requestId,
+        orderId,
+        outcome: 'rejected',
+        payloadBytes: validated.serialisedBytes,
+      });
+    }
+    return res.status(validated.status).json({ error: validated.error, requestId });
   }
-  if (
-    typeof dimensions.widthMm !== 'number' ||
-    typeof dimensions.heightMm !== 'number' ||
-    typeof dimensions.dpi !== 'number' ||
-    dimensions.widthMm < 50 || dimensions.heightMm < 50 ||
-    dimensions.widthMm > 1500 || dimensions.heightMm > 1500 ||
-    dimensions.dpi < 72 || dimensions.dpi > 600
-  ) {
-    return res.status(400).json({ error: 'Invalid dimensions', requestId });
-  }
-
-  // Belt-and-braces size limits — payload lives in memory for 60s and is
-  // walked by the Playwright browser. A run-away payload would OOM the box.
-  if (!Array.isArray(payload.tracks) || payload.tracks.length > 500) {
-    return res.status(413).json({ error: 'Too many tracks', requestId });
-  }
-  // Catch deeply-nested theme/config blobs that slip past the tracks check.
-  // JSON.stringify is the most accurate measure of the in-memory + serialised
-  // payload footprint; the 8 MB body-parser limit is a coarser pre-filter.
-  const serialisedBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
-  if (serialisedBytes > MAX_PAYLOAD_BYTES) {
-    log.warn('Payload rejected — too large', {
-      scope: 'render.order',
-      requestId,
-      orderId,
-      outcome: 'rejected',
-      payloadBytes: serialisedBytes,
-    });
-    return res.status(413).json({ error: 'Payload too large', requestId });
-  }
+  const { payload, dimensions, serialisedBytes } = validated;
 
   log.info('Render started', {
     scope: 'render.order',
@@ -304,6 +348,122 @@ renderRouter.post('/order/:orderId', renderLimiter, async (req, res) => {
       durationMs,
       extra: {
         order_id: orderId,
+        width_mm: dimensions.widthMm,
+        height_mm: dimensions.heightMm,
+        dpi: dimensions.dpi,
+        track_count: payload.tracks.length,
+      },
+    });
+    res.status(500).json({ error: 'Failed to render poster', requestId });
+  }
+});
+
+/**
+ * Free-export render — same Playwright pipeline as paid orders, but the PNG
+ * streams straight back to the browser instead of landing in R2 against an
+ * order row. Exists because client-side capture is unreliable on mobile
+ * (iOS WebGL context eviction + canvas size limits produced black exports);
+ * the server render is device-independent by construction.
+ *
+ * The client falls back to local capture rendering on any failure here, so
+ * errors are cheap — but still reported for visibility.
+ */
+renderRouter.post('/export', exportLimiter, async (req, res) => {
+  const requestId = newRequestId();
+
+  if (!SERVER_RENDER_ENABLED) {
+    return res.status(503).json({
+      error: 'Server rendering is not enabled on this deployment',
+      requestId,
+    });
+  }
+
+  const sessionId = req.cookies?.[COOKIE_NAME];
+  if (!sessionId || !getSession(sessionId)) {
+    return res.status(401).json({ error: 'Not connected to Strava', requestId });
+  }
+
+  const validated = validateRenderBody(req.body);
+  if (!validated.ok) {
+    if (validated.error === 'Payload too large') {
+      log.warn('Payload rejected — too large', {
+        scope: 'render.export',
+        requestId,
+        outcome: 'rejected',
+        payloadBytes: validated.serialisedBytes,
+      });
+    }
+    return res.status(validated.status).json({ error: validated.error, requestId });
+  }
+  const { payload, dimensions, serialisedBytes } = validated;
+
+  log.info('Export render started', {
+    scope: 'render.export',
+    requestId,
+    payloadBytes: serialisedBytes,
+    trackCount: payload.tracks.length,
+    widthMm: dimensions.widthMm,
+    heightMm: dimensions.heightMm,
+    dpi: dimensions.dpi,
+  });
+
+  const renderStarted = Date.now();
+  try {
+    const port = parseInt(process.env.PORT || process.env.SERVER_PORT || '8080', 10);
+    const internalBaseUrl = `http://127.0.0.1:${port}`;
+
+    const buf = await renderPoster(payload, {
+      widthMm: dimensions.widthMm,
+      heightMm: dimensions.heightMm,
+      dpi: dimensions.dpi,
+      internalBaseUrl,
+      requestId,
+    });
+
+    log.info('Export render completed', {
+      scope: 'render.export',
+      requestId,
+      outcome: 'ok',
+      bufferBytes: buf.length,
+      durationMs: Date.now() - renderStarted,
+    });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Render-Request-Id', requestId);
+    res.send(buf);
+  } catch (err) {
+    const durationMs = Date.now() - renderStarted;
+    if (err instanceof RenderBusyError) {
+      log.warn('Export render queue full', {
+        scope: 'render.export',
+        requestId,
+        outcome: 'rejected',
+      });
+      reportServerError(err, {
+        scope: 'render.export',
+        method: 'POST',
+        route: '/api/render/export',
+        httpStatus: 503,
+        requestId,
+        durationMs,
+        extra: { reason: 'queue_full' },
+      });
+      return res.status(503).json({ error: 'Server busy, please retry in a moment', requestId });
+    }
+    log.error('Export render failed', {
+      scope: 'render.export',
+      requestId,
+      outcome: 'error',
+      error: (err as Error).message,
+    });
+    reportServerError(err, {
+      scope: 'render.export',
+      method: 'POST',
+      route: '/api/render/export',
+      httpStatus: 500,
+      requestId,
+      durationMs,
+      extra: {
         width_mm: dimensions.widthMm,
         height_mm: dimensions.heightMm,
         dpi: dimensions.dpi,

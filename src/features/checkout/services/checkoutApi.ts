@@ -173,12 +173,11 @@ const RENDER_TIMEOUT_MS = 60_000;
 const RENDER_MAX_ATTEMPTS = 3;
 const RENDER_RETRY_BASE_MS = 1500;
 
-export async function renderPosterOnServer(
-  orderId: string,
-  payload: unknown,
-  dimensions: { widthMm: number; heightMm: number; dpi: number; tierId?: string },
+async function fetchRenderWithRetry(
+  url: string,
+  body: unknown,
   callerSignal?: AbortSignal,
-): Promise<{ imageUrl: string; requestId?: string }> {
+): Promise<Response> {
   let lastErr: RenderError | null = null;
   for (let attempt = 1; attempt <= RENDER_MAX_ATTEMPTS; attempt++) {
     if (callerSignal?.aborted) {
@@ -192,16 +191,14 @@ export async function renderPosterOnServer(
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
 
     try {
-      const res = await fetch(`/api/render/order/${orderId}`, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload, dimensions }),
+        body: JSON.stringify(body),
         signal: ac.signal,
       });
       if (res.ok) {
-        const body = await res.json() as { imageUrl: string; requestId?: string };
-        recordRenderRequestId(body.requestId);
-        return body;
+        return res;
       }
       const errBody = await res.json().catch(() => ({} as { error?: string; requestId?: string }));
       const requestId = errBody.requestId ?? null;
@@ -239,6 +236,38 @@ export async function renderPosterOnServer(
     }
   }
   throw lastErr ?? new RenderError('Render failed after retries', { retryable: false });
+}
+
+export async function renderPosterOnServer(
+  orderId: string,
+  payload: unknown,
+  dimensions: { widthMm: number; heightMm: number; dpi: number; tierId?: string },
+  callerSignal?: AbortSignal,
+): Promise<{ imageUrl: string; requestId?: string }> {
+  const res = await fetchRenderWithRetry(
+    `/api/render/order/${orderId}`,
+    { payload, dimensions },
+    callerSignal,
+  );
+  const body = await res.json() as { imageUrl: string; requestId?: string };
+  recordRenderRequestId(body.requestId);
+  return body;
+}
+
+/**
+ * Free-export render path: same payload and retry semantics as
+ * renderPosterOnServer, but the server streams the PNG straight back instead
+ * of attaching it to an order. Callers should fall back to client-side
+ * rendering when this throws — the export must still succeed offline.
+ */
+export async function renderExportOnServer(
+  payload: unknown,
+  dimensions: { widthMm: number; heightMm: number; dpi: number },
+  callerSignal?: AbortSignal,
+): Promise<Blob> {
+  const res = await fetchRenderWithRetry('/api/render/export', { payload, dimensions }, callerSignal);
+  recordRenderRequestId(res.headers.get('X-Render-Request-Id'));
+  return res.blob();
 }
 
 // === Gift context persistence (cookie + URL param fallback) ===

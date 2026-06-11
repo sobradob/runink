@@ -26,6 +26,8 @@ import { SettingsPanel, SettingsActions } from './SettingsPanel';
 import { MobileSettingsSheet } from './MobileSettingsSheet';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
 import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer';
+import { applyWatermark } from '../infrastructure/renderer/watermark';
+import { ThemeStrip } from '@/features/theme/ui/ThemeGallery';
 
 /** Flip to false to fall back to the old Canvas-based renderer */
 const USE_CAPTURE_RENDERER = true;
@@ -39,6 +41,7 @@ import { OrderButton } from '@/features/checkout/ui/OrderButton';
 import { GiftOrderButton } from '@/features/checkout/ui/GiftOrderButton';
 import {
   getUploadUrl,
+  renderExportOnServer,
   renderPosterOnServer,
   uploadPosterPng,
   type GiftContext,
@@ -160,6 +163,13 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     persistenceKey,
     { config, themeId: theme.id, showKmMarkers, showStartFinish },
   );
+
+  // One per editor session — the component re-mounts when the user picks a
+  // different activity set, so this fires once per poster being edited.
+  useEffect(() => {
+    window.mixpanel?.track('editor_opened', { mode, theme_id: config.themeId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Marker placement state
   const [placingIcon, setPlacingIcon] = useState<MarkerIcon | null>(null);
@@ -289,10 +299,35 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     };
   }, [theme, tracks, config, allMarkers, mode, activity, activities]);
 
+  /** Payload for the server-side Playwright renderer — mirrors the preview's
+   *  own component inputs so the internal render page can mount identical
+   *  components. Shared by the paid-order and free-export server paths. */
+  const buildServerPayload = useCallback((dims: PosterDimensions) => {
+    const opts = buildRenderOptions();
+    return {
+      theme: opts.theme,
+      config: { ...opts.config, dimensions: dims },
+      tracks: opts.tracks,
+      mode,
+      activity,
+      activities,
+      title: opts.title,
+      subtitle: opts.subtitle,
+      showStats: config.showStats,
+      showCoordinates: config.showCoordinates,
+    };
+  }, [buildRenderOptions, config.showStats, config.showCoordinates, mode, activity, activities]);
+
+  /** Which renderer produced the last free export — sent with the
+   *  export_completed event so the rollout is verifiable in Mixpanel. */
+  const lastRenderPathRef = useRef<'server' | 'capture' | 'canvas'>('canvas');
+
   /** Render poster to PNG blob — used by both export and order flow.
    *  When printDimensions is provided (ordering), always use the canvas renderer for
-   *  full-resolution output. The capture renderer is only used for free PNG exports
-   *  where speed matters and preview-quality is acceptable. */
+   *  full-resolution output. Free exports prefer the server-side Playwright
+   *  renderer (device-independent — mobile WebGL/canvas limits produced black
+   *  exports), then fall back to the client capture renderer, then to the
+   *  legacy canvas renderer, so exports still work offline. */
   const renderPoster = useCallback(async (printDimensions?: PosterDimensions): Promise<Blob> => {
     // For paid prints: always use canvas renderer at full resolution
     if (printDimensions) {
@@ -301,25 +336,46 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       return renderPosterToBlob(opts);
     }
 
-    // For free exports: use capture renderer (fast, WYSIWYG from preview)
+    // Free exports, first choice: server-side Playwright render.
+    if (RENDER_ON_SERVER) {
+      try {
+        const dims = config.dimensions;
+        const blob = await renderExportOnServer(buildServerPayload(dims), {
+          widthMm: dims.widthMm,
+          heightMm: dims.heightMm,
+          dpi: dims.dpi,
+        });
+        lastRenderPathRef.current = 'server';
+        return await applyWatermark(blob);
+      } catch (e) {
+        // Server unreachable, busy, or rate-limited — client paths below
+        // still produce a usable (preview-resolution) export.
+        console.warn('[render] Server export failed, falling back to client capture:', e);
+      }
+    }
+
+    // Second choice: capture renderer (fast, WYSIWYG from preview)
     if (USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
       try {
-        return await capturePosterToBlob({
+        const blob = await capturePosterToBlob({
           element: previewContainerRef.current,
           map: mapInstanceRef.current,
           dimensions: config.dimensions,
         });
-      } catch (e: any) {
-        if (e.message === 'MAP_BLANK') {
+        lastRenderPathRef.current = 'capture';
+        return await applyWatermark(blob);
+      } catch (e) {
+        if (e instanceof Error && e.message === 'MAP_BLANK') {
           console.warn('[render] Capture renderer detected blank map, using canvas fallback');
         } else {
           throw e;
         }
       }
     }
-    // Fallback to canvas renderer
-    return renderPosterToBlob(buildRenderOptions());
-  }, [buildRenderOptions, config.dimensions]);
+    // Last resort: legacy canvas renderer
+    lastRenderPathRef.current = 'canvas';
+    return applyWatermark(await renderPosterToBlob(buildRenderOptions()));
+  }, [buildRenderOptions, buildServerPayload, config.dimensions]);
 
   /** Render + upload for the paid-order flow. Dispatches to either the
    *  server-side Playwright renderer or the legacy client-render-then-upload
@@ -330,23 +386,8 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     printDimensions?: PosterDimensions,
   ): Promise<void> => {
     if (RENDER_ON_SERVER) {
-      const opts = buildRenderOptions();
       const dims = printDimensions ?? config.dimensions;
-      // Payload mirrors the preview's own component inputs so the internal
-      // render page can mount identical components.
-      const payload = {
-        theme: opts.theme,
-        config: { ...opts.config, dimensions: dims },
-        tracks: opts.tracks,
-        mode,
-        activity,
-        activities,
-        title: opts.title,
-        subtitle: opts.subtitle,
-        showStats: config.showStats,
-        showCoordinates: config.showCoordinates,
-      };
-      await renderPosterOnServer(orderId, payload, {
+      await renderPosterOnServer(orderId, buildServerPayload(dims), {
         widthMm: dims.widthMm,
         heightMm: dims.heightMm,
         dpi: dims.dpi,
@@ -364,10 +405,11 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     const { url, method, local } = await getUploadUrl(orderId);
     await uploadPosterPng(url, method, blob, orderId, local);
     clearDraft(persistenceKey);
-  }, [buildRenderOptions, config.dimensions, config.showStats, config.showCoordinates, mode, activity, activities, renderPoster, persistenceKey]);
+  }, [buildServerPayload, config.dimensions, renderPoster, persistenceKey]);
 
   const handleExport = useCallback(async () => {
     if (tracks.length === 0) return;
+    window.mixpanel?.track('export_clicked', { mode, theme_id: config.themeId });
     setExporting(true);
 
     try {
@@ -378,12 +420,18 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       const blob = await renderPoster();
       const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.png`;
       downloadBlob(blob, filename);
+      window.mixpanel?.track('export_completed', {
+        mode,
+        theme_id: config.themeId,
+        render_path: lastRenderPathRef.current,
+      });
     } catch (err) {
       console.error('Export failed:', err);
+      window.mixpanel?.track('export_failed', { mode, theme_id: config.themeId });
     } finally {
       setExporting(false);
     }
-  }, [tracks, theme, config, allMarkers, mode, activity, activities]);
+  }, [tracks, config, mode, activity, renderPoster]);
 
   const aspectRatio = config.dimensions.widthMm / config.dimensions.heightMm;
 
@@ -415,6 +463,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     config,
     theme,
     mode,
+    tracks,
     showKmMarkers,
     showStartFinish,
     placingIcon,
@@ -517,6 +566,14 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       <div className="md:hidden">
         <MobileSettingsSheet
           collapseRef={collapseSheetRef}
+          themeStrip={
+            <ThemeStrip
+              selectedId={config.themeId}
+              onSelect={handleThemeChange}
+              tracks={tracks}
+              isCompilation={mode === 'compilation'}
+            />
+          }
           actionButtons={
             <SettingsActions
               onExport={handleExport}
@@ -526,7 +583,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
             />
           }
         >
-          <SettingsPanel {...settingsPanelProps} hideActions />
+          <SettingsPanel {...settingsPanelProps} hideActions hideTheme />
         </MobileSettingsSheet>
       </div>
     </div>

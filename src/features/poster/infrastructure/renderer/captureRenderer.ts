@@ -13,6 +13,42 @@ interface CaptureOptions {
 }
 
 /**
+ * True when the canvas holds no usable content: fully transparent, or every
+ * sampled pixel (nearly) identical. A solid single colour is how a broken
+ * WebGL readback manifests — iOS Safari evicts WebGL contexts under memory
+ * pressure and toDataURL then returns a VALID but all-black PNG, which the
+ * old `dataUrl === 'data:,'` check waved through. A real rendered map always
+ * has contrast (route line vs background), even with all layers toggled off.
+ */
+function isCanvasBlank(source: HTMLCanvasElement): boolean {
+  const SAMPLE = 48;
+  const probe = document.createElement('canvas');
+  probe.width = SAMPLE;
+  probe.height = SAMPLE;
+  const ctx = probe.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return false; // can't tell — assume content is fine
+  try {
+    ctx.drawImage(source, 0, 0, SAMPLE, SAMPLE);
+    const data = ctx.getImageData(0, 0, SAMPLE, SAMPLE).data;
+    const [r0, g0, b0, a0] = data;
+    const TOLERANCE = 4;
+    for (let i = 0; i < data.length; i += 4) {
+      if (
+        Math.abs(data[i] - r0) > TOLERANCE ||
+        Math.abs(data[i + 1] - g0) > TOLERANCE ||
+        Math.abs(data[i + 2] - b0) > TOLERANCE ||
+        Math.abs(data[i + 3] - a0) > TOLERANCE
+      ) {
+        return false; // found variation — real content
+      }
+    }
+    return true;
+  } catch {
+    return false; // sampling failed — don't block the export on the probe
+  }
+}
+
+/**
  * Captures the live preview DOM at print resolution, producing a WYSIWYG export.
  *
  * Strategy: capture the preview as-is (tiles already loaded at preview resolution)
@@ -88,6 +124,12 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
   // html-to-image calls canvas.toDataURL() later during DOM cloning, but by then
   // MapLibre may have cleared the WebGL buffer — causing a blank map in the export.
   const mapCanvas = map.getCanvas();
+
+  if (isCanvasBlank(mapCanvas)) {
+    console.warn('[capture] Map canvas reads as uniform/blank — falling back');
+    throw new Error('MAP_BLANK');
+  }
+
   const dataUrl = mapCanvas.toDataURL('image/png');
 
   if (!dataUrl || dataUrl === 'data:,') {

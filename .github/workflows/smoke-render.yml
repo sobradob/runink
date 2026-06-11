@@ -18,6 +18,8 @@ on:
       - 'package-lock.json'
       - 'server/**'
       - 'scripts/smoke-render.ts'
+      - 'scripts/smoke-export.ts'
+      - 'scripts/smoke-fixture.ts'
       - 'src/features/poster/**'
       - 'src/features/map/**'
       - 'src/styles/**'
@@ -33,6 +35,8 @@ on:
       - 'package-lock.json'
       - 'server/**'
       - 'scripts/smoke-render.ts'
+      - 'scripts/smoke-export.ts'
+      - 'scripts/smoke-fixture.ts'
       - 'src/features/poster/**'
       - 'src/features/map/**'
       - 'src/styles/**'
@@ -88,6 +92,7 @@ jobs:
             --network host \
             -e NODE_ENV=test \
             -e ENABLE_SMOKE_ENDPOINTS=true \
+            -e ENABLE_SERVER_RENDER=true \
             -e PORT=8099 \
             -e DATABASE_URL=postgres://postgres:smoke@localhost:5432/runink_smoke \
             -e SESSION_SECRET=ci-smoke-secret \
@@ -116,6 +121,11 @@ jobs:
 
       - name: Run smoke render (inside container)
         run: docker exec -e PORT=8099 runink-smoke node --import tsx scripts/smoke-render.ts
+
+      - name: Run smoke export (inside container)
+        # Exercises the free-export route end-to-end (session auth + render +
+        # PNG streaming). The script self-asserts content type and >50 KB.
+        run: docker exec -e PORT=8099 runink-smoke node --import tsx scripts/smoke-export.ts
 
       - name: Copy PNG out of container
         run: docker cp runink-smoke:/app/smoke-render.png ./smoke-render.png

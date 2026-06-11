@@ -32,10 +32,25 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
     if (gl) maxSide = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
   } catch { /* use default */ }
 
+  // iOS Safari caps 2D canvas area at ~16.7M pixels, and WebGL framebuffers
+  // hit GPU memory limits well below MAX_TEXTURE_SIZE-squared (16384 on modern
+  // iPhones — the side-length cap alone never triggers there). Without this
+  // cap the offscreen map renders black on mobile. Mirrors the identical cap
+  // in captureRenderer.ts.
+  const MAX_CANVAS_AREA = 16_000_000;
+  const area = width * height;
+  const areaScale = area > MAX_CANVAS_AREA ? Math.sqrt(MAX_CANVAS_AREA / area) : 1;
+
   // Scale down only if needed, keeping integer dimensions to avoid tile seam artifacts
-  const scale = Math.min(1, maxSide / Math.max(width, height));
+  const scale = Math.min(1, maxSide / Math.max(width, height), areaScale);
   const renderWidth = Math.round(width * scale);
   const renderHeight = Math.round(height * scale);
+
+  if (scale < 1) {
+    console.info(
+      `[render] Downscaling canvas render: ${width}×${height} → ${renderWidth}×${renderHeight}`
+    );
+  }
 
   // Create offscreen container
   const container = document.createElement('div');
