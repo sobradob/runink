@@ -108,8 +108,16 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
       // doesn't accidentally re-enter the retry path.
       outstandingOrderIdRef.current = null;
       outstandingCheckoutUrlRef.current = null;
+      window.mixpanel?.track('order_render_completed', {
+        tier_id: activeTierId,
+        theme_id: posterConfig?.themeId,
+      });
 
       setStatus('Redirecting to payment...');
+      window.mixpanel?.track('checkout_redirected', {
+        tier_id: activeTierId,
+        theme_id: posterConfig?.themeId,
+      });
       window.location.href = checkoutUrl;
     } catch (e: unknown) {
       console.error('Order failed:', e);
@@ -162,6 +170,10 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
       <>
         <button
           onClick={() => {
+            window.mixpanel?.track('order_started', {
+              tier_id: baseTierId,
+              theme_id: posterConfig?.themeId,
+            });
             if (COMING_SOON) {
               setShowComingSoon(true);
             } else {

@@ -380,8 +380,14 @@ function MainApp({ logoLongPress }: MainAppProps) {
         {index && !stravaLoading && (
           <ActivityBrowser
             activities={index.activities}
-            onSelectSingle={(activity) => setView({ type: 'individual', activity })}
-            onSelectMultiple={(activities) => setView({ type: 'compilation', activities })}
+            onSelectSingle={(activity) => {
+              window.mixpanel?.track('activity_selected', { mode: 'individual', activity_count: 1 });
+              setView({ type: 'individual', activity });
+            }}
+            onSelectMultiple={(activities) => {
+              window.mixpanel?.track('activity_selected', { mode: 'compilation', activity_count: activities.length });
+              setView({ type: 'compilation', activities });
+            }}
           />
         )}
       </main>

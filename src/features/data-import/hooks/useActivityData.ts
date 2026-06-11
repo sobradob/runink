@@ -40,6 +40,16 @@ export function useActivityIndex() {
     return null;
   });
 
+  // The OAuth callback redirects to `/?strava=connected` on success — the
+  // only signal that this page load is a fresh post-authorization landing
+  // rather than a returning session.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('strava') === 'connected') {
+      window.mixpanel?.track('strava_connected');
+    }
+  }, []);
+
   useEffect(() => {
     const abortController = new AbortController();
 
@@ -135,6 +145,7 @@ export function useActivityIndex() {
   } : null;
 
   const connectStrava = useCallback(() => {
+    window.mixpanel?.track('strava_connect_clicked');
     initiateStravaAuth();
   }, []);
 

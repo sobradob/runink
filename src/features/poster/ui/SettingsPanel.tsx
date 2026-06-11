@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Theme } from '@/types/theme';
+import type { TrackData } from '@/types/activity';
 import type { PosterConfig, LayerVisibility, MarkerIcon } from '@/types/poster';
 import { POSTER_PRESETS, MARKER_ICONS } from '@/types/poster';
 import { ThemeGallery } from '@/features/theme/ui/ThemeGallery';
@@ -8,6 +9,8 @@ interface SettingsPanelProps {
   config: PosterConfig;
   theme: Theme;
   mode: 'individual' | 'compilation';
+  /** Route data for theme chip previews */
+  tracks?: TrackData[];
   showKmMarkers: boolean;
   showStartFinish: boolean;
   placingIcon: MarkerIcon | null;
@@ -23,6 +26,8 @@ interface SettingsPanelProps {
   orderButtonSlot?: React.ReactNode;
   /** When true, hides the bottom action buttons (they render in the mobile sheet bar instead) */
   hideActions?: boolean;
+  /** When true, hides the Theme section (the mobile sheet shows a persistent theme strip instead) */
+  hideTheme?: boolean;
 }
 
 /** Extracted action buttons — reused in desktop sidebar and mobile sheet collapsed bar */
@@ -55,6 +60,7 @@ export function SettingsPanel({
   config,
   theme,
   mode,
+  tracks,
   showKmMarkers,
   showStartFinish,
   placingIcon,
@@ -69,6 +75,7 @@ export function SettingsPanel({
   exporting,
   orderButtonSlot,
   hideActions,
+  hideTheme,
 }: SettingsPanelProps) {
   const updateLayer = (key: keyof LayerVisibility, value: boolean) => {
     onConfigChange({ layers: { ...config.layers, [key]: value } });
@@ -84,9 +91,16 @@ export function SettingsPanel({
       </div>
 
       {/* Theme */}
-      <Section title="Theme" defaultOpen>
-        <ThemeGallery selectedId={config.themeId} onSelect={onThemeChange} />
-      </Section>
+      {!hideTheme && (
+        <Section title="Theme" defaultOpen>
+          <ThemeGallery
+            selectedId={config.themeId}
+            onSelect={onThemeChange}
+            tracks={tracks}
+            isCompilation={mode === 'compilation'}
+          />
+        </Section>
+      )}
 
       {/* Layers */}
       <Section title="Layers">

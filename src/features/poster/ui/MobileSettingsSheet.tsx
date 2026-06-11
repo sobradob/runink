@@ -3,25 +3,28 @@ import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react'
 type SheetSnap = 'collapsed' | 'half' | 'full';
 
 const COLLAPSED_HEIGHT = 165; // px — fits drag handle + Customize button + Export + Order buttons
+const THEME_STRIP_HEIGHT = 64; // px — extra collapsed height when a theme strip is present
 const DRAG_THRESHOLD = 40;
 
 interface MobileSettingsSheetProps {
   children: ReactNode;
   /** Slot for Export/Order buttons — always visible in collapsed bar */
   actionButtons: ReactNode;
+  /** Slot for the always-visible theme switcher strip, above the action buttons */
+  themeStrip?: ReactNode;
   /** Imperative collapse ref */
   collapseRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-function snapToHeight(snap: SheetSnap): string {
+function snapToHeight(snap: SheetSnap, collapsedHeight: number): string {
   switch (snap) {
-    case 'collapsed': return `${COLLAPSED_HEIGHT}px`;
+    case 'collapsed': return `${collapsedHeight}px`;
     case 'half': return '50dvh';
     case 'full': return '90dvh';
   }
 }
 
-export function MobileSettingsSheet({ children, actionButtons, collapseRef }: MobileSettingsSheetProps) {
+export function MobileSettingsSheet({ children, actionButtons, themeStrip, collapseRef }: MobileSettingsSheetProps) {
   const [snap, setSnap] = useState<SheetSnap>('collapsed');
   const [dragDelta, setDragDelta] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -97,7 +100,8 @@ export function MobileSettingsSheet({ children, actionButtons, collapseRef }: Mo
   };
 
   // Compute the CSS height, applying drag offset
-  const baseHeight = snapToHeight(snap);
+  const collapsedHeight = COLLAPSED_HEIGHT + (themeStrip ? THEME_STRIP_HEIGHT : 0);
+  const baseHeight = snapToHeight(snap, collapsedHeight);
   const heightStyle = isDragging && dragDelta !== 0
     ? `calc(${baseHeight} - ${dragDelta}px)`
     : baseHeight;
@@ -118,7 +122,7 @@ export function MobileSettingsSheet({ children, actionButtons, collapseRef }: Mo
         style={{
           height: heightStyle,
           maxHeight: '90dvh',
-          minHeight: `${COLLAPSED_HEIGHT}px`,
+          minHeight: `${collapsedHeight}px`,
           transition: isDragging ? 'none' : 'height 300ms cubic-bezier(0.32, 0.72, 0, 1)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
@@ -140,6 +144,14 @@ export function MobileSettingsSheet({ children, actionButtons, collapseRef }: Mo
             {isExpanded ? 'Close settings' : 'Customize poster'}
           </div>
         </button>
+
+        {/* Theme strip — always visible in every snap state so the
+            highest-impact edit never needs the sheet opened */}
+        {themeStrip && (
+          <div className="flex-shrink-0 pb-2">
+            {themeStrip}
+          </div>
+        )}
 
         {/* Collapsed bar — always visible action buttons (scrollable when order flow expands) */}
         <div className="px-4 pb-3 flex-shrink-0 overflow-y-auto max-h-[40dvh]">
