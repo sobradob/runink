@@ -59,8 +59,8 @@ activitiesRouter.get('/activities', async (req, res) => {
     // The client follows up with a full request in the background.
     const maxPages = quick ? 1 : Infinity;
     console.log(`Fetching activities from Strava (quick=${quick})...`);
-    const stravaActivities = await fetchAllGpsActivities(validToken.accessToken, { maxPages });
-    console.log(`Fetched ${stravaActivities.length} GPS activities`);
+    const { activities: stravaActivities, complete } = await fetchAllGpsActivities(validToken.accessToken, { maxPages });
+    console.log(`Fetched ${stravaActivities.length} GPS activities (complete=${complete})`);
 
     // Transform to RunInk format
     const activities: ActivitySummary[] = [];
@@ -79,9 +79,13 @@ activitiesRouter.get('/activities', async (req, res) => {
     // Sort by date descending
     activities.sort((a, b) => b.timestamp - a.timestamp);
 
-    // Only cache the full result — partial quick responses would poison the cache
-    // and cause later full requests to return stale-incomplete data.
-    const isPartial = quick && stravaActivities.length >= 200;
+    // Only cache the full result — partial responses would poison the cache
+    // and cause later full requests to return stale-incomplete data. `complete`
+    // is judged on Strava's RAW page size, never the GPS-filtered count: a full
+    // page of 200 with 129 GPS runs is NOT the last page (real user hit this —
+    // partial=false meant the client never fetched the rest). A rate-limited
+    // (429) full fetch is also incomplete and must not be cached.
+    const isPartial = !complete;
     if (!isPartial) {
       cache.set(session.athleteId, { activities, tracks, fetchedAt: Date.now() });
     }

@@ -1,6 +1,43 @@
 # RunInk — TODO
 
-## In progress: mobile black-export fix (2026-06-10)
+## In progress: activity ingestion — partial-load bug + onboarding UX (2026-06-11)
+
+Goal: connecting Strava loaded only the first 129 runs; full list appeared only after
+manual refresh. Acceptance: quick first-page load stays fast, but the background full
+fetch always fires when more pages exist, the cache is never poisoned with partial
+data, and the UI tells the user the rest of their runs are still syncing.
+
+Root cause: `isPartial` in server/routes/activities.ts compares the GPS-FILTERED count
+(129) against the page size (200). A full raw page of 200 with <200 GPS activities is
+misclassified as "last page" → `partial: false` → client skips the background full
+fetch AND the partial result is cached as complete for 10 min. Bonus bug in the same
+family: a rate-limited (429) full fetch also gets cached as complete.
+
+- [x] Locate root cause (server/lib/strava-client.ts + server/routes/activities.ts)
+- [x] strava-client: `fetchAllGpsActivities` returns `{ activities, complete }` based on
+      raw page exhaustion (empty page or raw count < per_page), not filtered count
+- [x] activities route: `isPartial = !complete`; only cache complete results
+- [x] Client: expose `syncingMore` from useActivityIndex while the background full
+      fetch is in flight; show a subtle "syncing the rest of your runs" pill in App
+- [x] Verify: tsc -b, lint touched files, scripted pagination check with stubbed fetch
+
+### Results (2026-06-11, branch fix/activity-ingestion-pagination)
+
+- `fetchAllGpsActivities` now returns `{ activities, complete }`; `complete` is true only
+  when Strava's raw page came back empty or short (< per_page). maxPages cutoff and 429
+  rate-limit both leave it false.
+- Route: `isPartial = !complete`; partial results (quick first page OR rate-limited full
+  fetch) are returned but never cached — fixes both the skipped background fetch and the
+  10-min poisoned cache.
+- Client: `syncingMore` flag + floating pill ("Syncing the rest of your runs from
+  Strava…") over the activity browser while the background full fetch runs.
+- Verified: `tsc -b` clean; eslint on touched files shows only pre-existing baseline
+  errors; `npx tsx scripts/check-strava-pagination.mts` (stubbed-fetch regression check,
+  4 cases incl. the original 200-raw/129-GPS page) passes. Browser preview not run —
+  preview MCP can't spawn processes in this env (see napkin) and repro needs a Strava
+  account with >200 activities.
+
+## Done: mobile black-export fix (2026-06-10)
 
 Goal: free PNG exports on mobile come out black (map missing, stats sliver at bottom).
 Root cause: capture renderer's blank-detection misses valid-but-black snapshots (iOS WebGL
@@ -40,8 +77,11 @@ and no client fallback can create an oversized canvas.
   `smoke-export.ts` both pass locally (byte-identical 165 KB PNG, export in 1.8 s);
   export PNG visually correct (route + styled stats); watermark smoke passes;
   endpoint 401s without session.
-- NOT yet done: commit/push/deploy; on-device confirmation from a real phone after
-  deploy (check `export_completed.render_path === 'server'` in Mixpanel).
+- Deployed 2026-06-11: commits 3ad2d13 + 5eea189 pushed, CI smoke (incl. new export
+  smoke) green, DO deployment 42becd8d ACTIVE. Prod verified: /api/render/health 200,
+  /api/render/export 401s without session (route live + flag on).
+- REMAINING: on-device confirmation from a real phone — export a poster and check
+  `export_completed.render_path === 'server'` in Mixpanel (project 4005642).
 
 ## Bugs
 
