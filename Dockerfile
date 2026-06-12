@@ -21,6 +21,16 @@ RUN npm ci --include=dev
 
 # Copy source and build the frontend + typecheck the server.
 COPY . .
+
+# Build-time client flags. DO App Platform passes BUILD_TIME env vars to
+# Dockerfile builds as build args — they are INVISIBLE to `npm run build`
+# unless declared as ARG here. Omitting this silently baked
+# RENDER_ON_SERVER=false into every bundle built since the Dockerfile swap
+# (2026-05-22 → 2026-06-11): Vite folded the flag to false and dead-code-
+# eliminated the entire client-side server-render path.
+ARG VITE_RENDER_ON_SERVER
+ENV VITE_RENDER_ON_SERVER=$VITE_RENDER_ON_SERVER
+
 RUN npm run build
 
 # Drop dev deps after build to keep the runtime image lean. (Kept tsx because

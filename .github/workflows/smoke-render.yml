@@ -78,6 +78,12 @@ jobs:
           context: .
           load: true
           tags: runink:smoke
+          # Mirror production's BUILD_TIME env vars. DO passes these as build
+          # args; the Dockerfile must declare matching ARGs or Vite silently
+          # builds with the flag off (which shipped a dead server-render
+          # client path from 2026-05-22 to 2026-06-11).
+          build-args: |
+            VITE_RENDER_ON_SERVER=true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -118,6 +124,14 @@ jobs:
           echo "Container never reached ready state"
           docker logs runink-smoke
           exit 1
+
+      - name: Assert client bundle has the server-render path
+        # The render/export fetch only survives Vite dead-code elimination
+        # when VITE_RENDER_ON_SERVER=true actually reached the build. Guards
+        # against the Dockerfile ARG plumbing silently breaking again.
+        run: |
+          docker exec runink-smoke sh -c 'grep -lq "render/export" dist/assets/index-*.js' \
+            || { echo "::error::dist bundle lacks /api/render/export — VITE_RENDER_ON_SERVER did not reach the Vite build"; exit 1; }
 
       - name: Run smoke render (inside container)
         run: docker exec -e PORT=8099 runink-smoke node --import tsx scripts/smoke-render.ts
