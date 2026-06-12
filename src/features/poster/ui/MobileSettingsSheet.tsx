@@ -37,7 +37,13 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, colla
   const collapse = useCallback(() => setSnap('collapsed'), []);
 
   // Expose collapse to parent for export flow
-  if (collapseRef) collapseRef.current = collapse;
+  useEffect(() => {
+    if (!collapseRef) return;
+    collapseRef.current = collapse;
+    return () => {
+      collapseRef.current = null;
+    };
+  }, [collapseRef, collapse]);
 
   const isExpanded = snap !== 'collapsed';
 
