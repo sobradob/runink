@@ -220,16 +220,18 @@ export interface GpsActivitiesResult {
 
 /**
  * Fetch GPS-based activities from Strava, paginating until exhausted or maxPages
- * reached. Pass maxPages=1 for a fast first-page load (up to 200 most recent).
+ * reached. Pass maxPages=1 for a fast first-page load (up to 200 most recent);
+ * pass startPage=maxPages=N to fetch exactly one page (the client-driven
+ * progressive loader does this for pages 2+).
  * Returns activities with their summary_polyline for GPS track rendering.
  */
 export async function fetchAllGpsActivities(
   accessToken: string,
-  options: { maxPages?: number } = {}
+  options: { maxPages?: number; startPage?: number } = {}
 ): Promise<GpsActivitiesResult> {
-  const { maxPages = Infinity } = options;
+  const { maxPages = Infinity, startPage = 1 } = options;
   const allActivities: StravaActivity[] = [];
-  let page = 1;
+  let page = startPage;
   const perPage = 200; // Max allowed by Strava
   let complete = false;
 
@@ -240,8 +242,11 @@ export async function fetchAllGpsActivities(
     });
 
     if (!res.ok) {
-      if (res.status === 429) {
-        // Rate limited — return what we have
+      if (res.status === 429 && allActivities.length > 0) {
+        // Rate limited mid-pagination — return what we have, marked incomplete.
+        // With nothing accumulated we throw instead (fall through below): an
+        // empty-but-incomplete result would make the progressive loader treat
+        // a rate-limited page as "keep going" and spin on 429s.
         console.warn('Strava rate limit hit, returning partial results');
         break;
       }

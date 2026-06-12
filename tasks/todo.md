@@ -1,6 +1,44 @@
 # RunInk — TODO
 
-## In progress: activity ingestion — partial-load bug + onboarding UX (2026-06-11)
+## In progress: progressive activity loading with live count (2026-06-11)
+
+Goal: after the quick first page, the rest of the runs stream in page-by-page so the
+activity list grows visibly and the sync pill shows a live count, instead of one
+silent 10-30s background request that lands all at once. Acceptance: one Strava API
+call per page total (no double-fetching), the server cache still ends up populated
+with the complete list, rate-limit on a single-page fetch can't infinite-loop the
+client, and `refresh=true` still does a full re-fetch.
+
+Design: client drives pagination. Server accepts `?page=N` (N≥2) returning one
+transformed page + `complete` flag judged on raw page size. Server assembles pages
+into a per-athlete `pending` map (quick request seeds page 1) and promotes to the
+real cache only when all pages 1..N arrived. Client loops pages until `complete`,
+appending and re-rendering after each page; pill shows running count.
+
+- [x] strava-client: add `startPage` option (single-page fetch = startPage=maxPages=N);
+      429 with nothing accumulated throws instead of returning empty-incomplete
+- [x] activities route: `?page=N` branch + pending-pages assembly → cache on completion;
+      extract shared transform helper
+- [x] stravaLoader: `page` option + `complete`/`page` in response type
+- [x] useActivityData: replace single background full fetch with page loop (client-side
+      page cap as infinite-loop guard); append + update state per page
+- [x] App: pill shows live count ("Syncing… N runs so far")
+- [x] Verify: tsc -b, lint touched files, extend scripts/check-strava-pagination.mts
+      (single-page fetch, 429-throw case)
+
+### Results (2026-06-11)
+
+- Verified: `tsc -b` + `vite build` clean; eslint on touched files = same 5 pre-existing
+  baseline errors (confirmed via git stash diff); `scripts/check-strava-pagination.mts`
+  (7 cases) and NEW `scripts/check-activities-route.mts` (full route flow with stubbed
+  Strava: quick → page 2 → page 3 → assembled-cache hit, exactly 1 Strava call/page,
+  page=1 rejected 400) all pass.
+- NOT implemented (needs a product decision): Strava webhooks + DB persistence for
+  instant repeat loads — the privacy policy explicitly promises activity data is only
+  cached in memory, never persisted. Changing that = privacy policy update + first
+  database in the stack.
+
+## Done: activity ingestion — partial-load bug + onboarding UX (2026-06-11)
 
 Goal: connecting Strava loaded only the first 129 runs; full list appeared only after
 manual refresh. Acceptance: quick first-page load stays fast, but the background full

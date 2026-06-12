@@ -26,8 +26,12 @@ export async function disconnectStrava(): Promise<void> {
 export interface StravaActivitiesResponse {
   activities: ActivitySummary[];
   tracks: Record<string, TrackData>;
-  /** True when the server returned only the first page — more activities are coming. */
+  /** True when the server returned only part of the history — more activities are coming. */
   partial?: boolean;
+  /** Echoed page number for single-page (progressive) requests. */
+  page?: number;
+  /** Single-page requests: true when this was Strava's last page. */
+  complete?: boolean;
 }
 
 export interface LoadOptions {
@@ -35,6 +39,9 @@ export interface LoadOptions {
   refresh?: boolean;
   /** Ask the server for the first page only (fast path for mobile cold-start). */
   quick?: boolean;
+  /** Fetch exactly one Strava page (2+) — the progressive loader's follow-up
+   *  to a partial quick load. Mutually exclusive with quick/refresh. */
+  page?: number;
   /** AbortSignal to cancel the request (e.g., component unmount). */
   signal?: AbortSignal;
 }
@@ -127,6 +134,7 @@ export async function loadStravaActivities(
   const params = new URLSearchParams();
   if (options.refresh) params.set('refresh', 'true');
   if (options.quick) params.set('quick', 'true');
+  if (options.page !== undefined) params.set('page', String(options.page));
   const url = `/api/strava/activities${params.size ? `?${params}` : ''}`;
 
   const res = await fetchWithRetry(url, { externalSignal: options.signal });

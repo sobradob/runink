@@ -52,7 +52,29 @@ r = await fetchAllGpsActivities('tok');
 assert(r.activities.length === 129, `rate-limited fetch returns page 1 only (got ${r.activities.length})`);
 assert(r.complete === false, 'rate-limited fetch reports complete=false (must not be cached)');
 
-// Case 4: quick mode where page 1 IS the last page (short raw page) → COMPLETE
+// Case 4: single-page fetch (progressive loader) — middle page → INCOMPLETE
+rateLimitFrom = null;
+r = await fetchAllGpsActivities('tok', { startPage: 2, maxPages: 2 });
+assert(r.activities.length === 150, `single-page fetch of page 2 returns 150 (got ${r.activities.length})`);
+assert(r.complete === false, 'single-page fetch of a full middle page reports complete=false');
+
+// Case 5: single-page fetch of the last (short) page → COMPLETE
+r = await fetchAllGpsActivities('tok', { startPage: 3, maxPages: 3 });
+assert(r.activities.length === 60, `single-page fetch of page 3 returns 60 (got ${r.activities.length})`);
+assert(r.complete === true, 'single-page fetch of a short page reports complete=true');
+
+// Case 6: single-page fetch rate-limited with nothing accumulated → THROWS
+// (empty-but-incomplete would make the client loop spin on 429s)
+rateLimitFrom = 2;
+let threw = false;
+try {
+  await fetchAllGpsActivities('tok', { startPage: 2, maxPages: 2 });
+} catch (e: any) {
+  threw = e?.name === 'StravaApiError' && e?.status === 429;
+}
+assert(threw, 'rate-limited single-page fetch throws StravaApiError(429) instead of returning empty-incomplete');
+
+// Case 7: quick mode where page 1 IS the last page (short raw page) → COMPLETE
 rateLimitFrom = null;
 pages.length = 0;
 pages.push(makeActivities(80, 60, 'only'));
