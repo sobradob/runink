@@ -164,12 +164,16 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
  *   - Network errors auto-retry — flaky mobile signal is the common case.
  *   - 4xx (except 408/429) does NOT retry — those are payload/auth errors
  *     that won't fix themselves.
- *   - Client-side timeout of 60 s per attempt via AbortController; the
- *     server's own timeout is 45 s so we add a buffer for the network leg.
+ *   - Client-side timeout of 90 s per attempt via AbortController. Print-DPI
+ *     order renders are CPU-bound in software WebGL on the 1-vCPU box and can
+ *     legitimately take over a minute (server timeout is 120 s). 90 s is the
+ *     practical ceiling anyway: DO App Platform's Cloudflare-fronted edge cuts
+ *     held-open requests at ~100 s, and aborting earlier than the server
+ *     finishes wastes the render and burns a second queue slot on retry.
  *   - Errors carry the server requestId so support can grep production
  *     logs for the exact attempt.
  */
-const RENDER_TIMEOUT_MS = 60_000;
+const RENDER_TIMEOUT_MS = 90_000;
 const RENDER_MAX_ATTEMPTS = 3;
 const RENDER_RETRY_BASE_MS = 1500;
 

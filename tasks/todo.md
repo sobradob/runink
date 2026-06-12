@@ -1,5 +1,76 @@
 # RunInk — TODO
 
+## In progress: 300 DPI order renders time out on prod (2026-06-12)
+
+Goal: paid print orders request 300 DPI via POST /api/render/order/:orderId; on the
+1-vCPU/2GB DO box, SwiftShader WebGL at 3543×4724 px never reaches MapLibre idle
+inside RENDER_TIMEOUT_MS=45s. Free exports were capped to 150 DPI as a workaround
+(commit 0757d03) but the order path is still a landmine. Acceptance: a 300 DPI
+30×40cm order render completes reliably under production CPU constraints, CI proves
+it, and print quality is not silently degraded without a deliberate decision.
+
+Key discovery: MapPreview doesn't set maxCanvasSize → MapLibre default 4096×4096
+already clamps the WebGL canvas (~3072×4096 at "300 DPI") and CSS-upscales. The map
+was never truly 300 DPI; only the DOM overlay (text/stats) benefits from the big
+viewport.
+
+- [x] Make RENDER_TIMEOUT_MS env-configurable (needed for measurement AND option c)
+- [x] smoke-render.ts: accept SMOKE_DPI / SMOKE_WIDTH_MM / SMOKE_HEIGHT_MM / SMOKE_DSF
+- [x] Measure in runink:flagtest Docker, --cpus=1 --memory=2g, server/+scripts/ mounted:
+      - 30×40cm 150 DPI dsf1:  9.5 s  (baseline, matches CI behavior)
+      - 30×40cm 300 DPI dsf1: 49.5 s  (completes! just over the 45 s budget locally;
+        DO shared vCPU is slower → prod timeout confirmed as slowness, not hang)
+      - 30×40cm 300 DPI dsf2: 23.5 s  (2.1× faster, output still 3544×4724)
+- [x] MEASUREMENT VERDICT → option (a) deviceScaleFactor = dpi/150, PLUS raised
+      timeouts. Decisive extra finding: dsf1 at 300 DPI lays out fixed-px overlay
+      text in a 3543-px CSS viewport → stats text is an illegible micro-sliver
+      (saw it in the PNG). dsf2 reproduces the proven 150 DPI layout (1772×2362
+      CSS) exactly, at full print resolution — faster AND fixes WYSIWYG drift.
+- [x] Measure worst case (all at --cpus=1 local; DO will be slower):
+      - 50×70cm 300 DPI dsf2:   81 s (output 5906×8268 ✓)
+      - 50×70cm 300 DPI dsf3.5: 50 s (CSS viewport ≈ 30×40 layout) → ~50 s of the
+        a2 cost is output-pixel raster/PNG-encode, irreducible by dsf. a2 (and
+        maybe a3) orders will exceed the ~100 s edge cap on DO even after this
+        fix → needs async render-job + poll flow (logged as follow-up).
+- [x] Implement: auto dsf = dpi/LAYOUT_DPI(150) in renderPoster (override stays
+      for smokes); server default timeout 45 s → 120 s, env-overridable; client
+      per-attempt timeout 60 s → 90 s (just under edge cap; aborting earlier
+      than the server finishes wastes the render and burns a 2nd queue slot)
+- [x] CI: 300 DPI smoke step + output-dimension assertion in smoke-render.yml
+- [x] Verify: tsc ✓, lint touched files ✓ (3 pre-existing checkoutApi anys
+      confirmed via stash); restarted CPU-limited container with auto-dsf code:
+      150 DPI → dsf=1, 1772×2362, byte-identical PNG to pre-change (167369 B);
+      300 DPI → dsf=2 auto, 3544×4724, 30 s cold (was 49.5 s + broken layout)
+
+### Results (2026-06-12)
+
+Changed (uncommitted, on fix/activity-ingestion-pagination):
+- server/lib/poster-renderer.ts — auto deviceScaleFactor = dpi/150 (LAYOUT_DPI),
+  RenderOptions.deviceScaleFactor override for smokes, RENDER_TIMEOUT_MS env-
+  overridable with default 45 s → 120 s
+- src/features/checkout/services/checkoutApi.ts — client per-attempt render
+  timeout 60 s → 90 s
+- scripts/smoke-render.ts — SMOKE_DPI/SMOKE_WIDTH_MM/SMOKE_HEIGHT_MM/SMOKE_DSF
+- server/routes/render.ts — _smoke passes deviceScaleFactor through
+- .github/workflows/smoke-render.yml — 300 DPI render step + PNG-dimension
+  assertion (~3543×4724), both PNGs uploaded as artifacts
+
+How verified: CPU-limited (--cpus=1 --memory=2g) runink:flagtest container with
+live server/ mounted; measured before/after; 150 DPI output byte-identical;
+300 DPI now full print px with the proven layout. tsc -b clean; eslint clean
+modulo pre-existing baseline.
+
+Follow-up (logged, not done): a2/a3 50×70 / 40×60 prints have ~50 s of
+irreducible output-raster/encode cost at 1 CPU (81 s total for a2) → likely
+exceed the ~100 s DO edge cap → need async render-job + poll. Also the editor
+preview's CSS size differs from the 150 DPI layout viewport, so preview vs
+print text proportions still drift — pre-existing, product call.
+- Constraint noted: DO App Platform edge (Cloudflare-fronted) caps held-open
+  requests ~100 s → client per-attempt timeout should stay just under that;
+  if real DO renders exceed ~90 s the fix needs an async job + poll flow instead.
+- Caveat to record: local arm64 M-series core ≫ DO shared vCPU; treat local --cpus=1
+  timings as optimistic lower bounds, use ratios (300/150) not absolutes.
+
 ## In progress: progressive activity loading with live count (2026-06-11)
 
 Goal: after the quick first page, the rest of the runs stream in page-by-page so the
