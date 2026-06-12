@@ -83,23 +83,36 @@ export function useActivityIndex() {
             setLoading(false); // UI usable now — error/full-loading states handle the rest
 
             if (quick.partial) {
-              // Background full fetch — don't block the UI. Errors here are soft:
-              // the user still has the first 200 activities to work with.
+              // Progressive background load: pull the remaining pages one at a
+              // time so the list grows visibly (and the sync pill can show a
+              // live count) instead of landing all at once after 10-30s.
+              // Errors are soft — the user keeps whatever has loaded so far.
               setSyncingMore(true);
-              loadStravaActivities({ signal: abortController.signal })
-                .then((full) => {
+              (async () => {
+                const all = [...quick.activities];
+                const tracks = { ...quick.tracks };
+                // Hard ceiling (1000 pages = 200k activities) so a server bug
+                // that never reports complete can't loop forever.
+                const MAX_PAGES = 1000;
+                try {
+                  for (let page = 2; page <= MAX_PAGES; page++) {
+                    const r = await loadStravaActivities({ page, signal: abortController.signal });
+                    if (abortController.signal.aborted) return;
+                    // Strava pages are newest-first, so appending keeps the
+                    // date-descending order.
+                    all.push(...r.activities);
+                    Object.assign(tracks, r.tracks);
+                    setActivities([...all]);
+                    setTracksMap({ ...tracks });
+                    if (r.complete) break;
+                  }
+                } catch (e) {
                   if (abortController.signal.aborted) return;
-                  setActivities(full.activities);
-                  setTracksMap(full.tracks);
-                })
-                .catch((e) => {
-                  if (abortController.signal.aborted) return;
-                  console.warn('[strava] Background full-load failed, keeping quick results:', e.message);
-                })
-                .finally(() => {
-                  if (abortController.signal.aborted) return;
-                  setSyncingMore(false);
-                });
+                  console.warn('[strava] Progressive load stopped early, keeping partial results:', (e as Error)?.message);
+                } finally {
+                  if (!abortController.signal.aborted) setSyncingMore(false);
+                }
+              })();
             }
           } catch (e: unknown) {
             if (abortController.signal.aborted) return;

@@ -364,7 +364,7 @@ function MainApp({ logoLongPress }: MainAppProps) {
           <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
             <div className="flex items-center gap-2 rounded-full border border-white/10 bg-[#0a0a0a]/90 px-4 py-2 text-xs text-white/60 shadow-lg">
               <div className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/70" />
-              Syncing the rest of your runs from Strava…
+              Syncing your runs from Strava… {index?.totalActivities ?? 0} so far
             </div>
           </div>
         )}

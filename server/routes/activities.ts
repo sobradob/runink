@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getSession, updateSession } from '../lib/session.js';
 import { fetchAllGpsActivities, getValidAccessToken, StravaApiError } from '../lib/strava-client.js';
+import type { StravaActivity } from '../lib/strava-client.js';
 import { stravaToActivitySummary, stravaToTrackData } from '../lib/transform.js';
 import type { ActivitySummary, TrackData } from '../lib/transform.js';
 import { reportServerError } from '../lib/error-reporter.js';
@@ -17,6 +18,71 @@ const cache = new Map<number, {
 }>();
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+// Progressive load assembly: the client fetches page 1 via ?quick=true, then
+// pages 2+ via ?page=N. Each page is parked here per athlete; when the last
+// page arrives (complete=true) and pages 1..N are all present, the assembled
+// list is promoted to the real cache. Each Strava page is fetched exactly
+// once — no second full fetch just to warm the cache.
+interface PendingPage {
+  activities: ActivitySummary[];
+  tracks: Record<string, TrackData>;
+}
+const pendingPages = new Map<number, {
+  pages: Map<number, PendingPage>;
+  startedAt: number;
+}>();
+const PENDING_TTL = 15 * 60 * 1000;
+
+/** Begin a new assembly with page 1 (from a partial quick load). Replaces any
+ *  previous in-flight assembly for this athlete — e.g. a second tab. */
+function startPendingAssembly(athleteId: number, firstPage: PendingPage) {
+  pendingPages.set(athleteId, { pages: new Map([[1, firstPage]]), startedAt: Date.now() });
+}
+
+/** Park page N; on the final page, promote pages 1..N to the cache if the set
+ *  is gapless. A gap (server restart, expired assembly) just means we skip
+ *  caching — the client already holds the data it fetched. */
+/** Strava payload → RunInk summaries + tracks, sorted by date descending. */
+function transformActivities(stravaActivities: StravaActivity[]): PendingPage {
+  const activities: ActivitySummary[] = [];
+  const tracks: Record<string, TrackData> = {};
+  for (const raw of stravaActivities) {
+    activities.push(stravaToActivitySummary(raw));
+    const track = stravaToTrackData(raw);
+    if (track) {
+      tracks[track.id] = track;
+    }
+  }
+  activities.sort((a, b) => b.timestamp - a.timestamp);
+  return { activities, tracks };
+}
+
+function recordPendingPage(athleteId: number, page: number, data: PendingPage, complete: boolean) {
+  const entry = pendingPages.get(athleteId);
+  if (!entry || Date.now() - entry.startedAt > PENDING_TTL) {
+    pendingPages.delete(athleteId);
+    return;
+  }
+  entry.pages.set(page, data);
+  if (!complete) return;
+
+  pendingPages.delete(athleteId);
+  const activities: ActivitySummary[] = [];
+  const tracks: Record<string, TrackData> = {};
+  for (let p = 1; p <= page; p++) {
+    const pageData = entry.pages.get(p);
+    if (!pageData) {
+      console.warn(`Pending assembly for athlete ${athleteId} missing page ${p}/${page}, not caching`);
+      return;
+    }
+    activities.push(...pageData.activities);
+    Object.assign(tracks, pageData.tracks);
+  }
+  activities.sort((a, b) => b.timestamp - a.timestamp);
+  cache.set(athleteId, { activities, tracks, fetchedAt: Date.now() });
+  console.log(`Assembled ${activities.length} activities from ${page} pages into cache for athlete ${athleteId}`);
+}
 
 // Get all Strava running activities
 activitiesRouter.get('/activities', async (req, res) => {
@@ -35,10 +101,17 @@ activitiesRouter.get('/activities', async (req, res) => {
     const cached = cache.get(session.athleteId);
     const forceRefresh = req.query.refresh === 'true';
     const quick = req.query.quick === 'true';
+    // Progressive loader: pages 2+ of a client-driven pagination loop.
+    // Page 1 is always the ?quick=true request.
+    const pageParam = typeof req.query.page === 'string' ? Number(req.query.page) : undefined;
+    if (pageParam !== undefined && (!Number.isInteger(pageParam) || pageParam < 2 || pageParam > 1000)) {
+      return res.status(400).json({ error: 'Invalid page parameter' });
+    }
 
     // If we have a fresh full cache, serve it regardless of quick — no need to
-    // re-fetch just to return partial data.
-    if (cached && !forceRefresh && Date.now() - cached.fetchedAt < CACHE_TTL) {
+    // re-fetch just to return partial data. (Page requests skip this: they only
+    // happen mid-loop, after a partial quick response.)
+    if (pageParam === undefined && cached && !forceRefresh && Date.now() - cached.fetchedAt < CACHE_TTL) {
       console.log(`Serving ${cached.activities.length} activities from cache (quick=${quick})`);
       return res.json({ ...cached, partial: false });
     }
@@ -53,33 +126,32 @@ activitiesRouter.get('/activities', async (req, res) => {
       });
     }
 
+    // Progressive loader page: fetch exactly one Strava page, park it in the
+    // pending assembly, and return it. The client appends and keeps looping
+    // until complete=true.
+    if (pageParam !== undefined) {
+      const { activities: stravaActivities, complete } = await fetchAllGpsActivities(
+        validToken.accessToken,
+        { startPage: pageParam, maxPages: pageParam },
+      );
+      const { activities, tracks } = transformActivities(stravaActivities);
+      recordPendingPage(session.athleteId, pageParam, { activities, tracks }, complete);
+      console.log(`Returning page ${pageParam}: ${activities.length} activities (complete=${complete})`);
+      return res.json({ activities, tracks, fetchedAt: Date.now(), partial: !complete, page: pageParam, complete });
+    }
+
     // Quick mode: fetch only the first page (up to 200 most recent GPS activities).
     // This gives mobile users something to interact with in ~3-5s, avoiding the
     // 20s+ blocking request that iOS Safari tends to drop on flaky networks.
-    // The client follows up with a full request in the background.
+    // The client follows up by looping ?page=2,3,... until complete.
     const maxPages = quick ? 1 : Infinity;
     console.log(`Fetching activities from Strava (quick=${quick})...`);
     const { activities: stravaActivities, complete } = await fetchAllGpsActivities(validToken.accessToken, { maxPages });
     console.log(`Fetched ${stravaActivities.length} GPS activities (complete=${complete})`);
 
-    // Transform to RunInk format
-    const activities: ActivitySummary[] = [];
-    const tracks: Record<string, TrackData> = {};
+    const { activities, tracks } = transformActivities(stravaActivities);
 
-    for (const raw of stravaActivities) {
-      const summary = stravaToActivitySummary(raw);
-      activities.push(summary);
-
-      const track = stravaToTrackData(raw);
-      if (track) {
-        tracks[track.id] = track;
-      }
-    }
-
-    // Sort by date descending
-    activities.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Only cache the full result — partial responses would poison the cache
+    // Only cache the complete result — partial responses would poison the cache
     // and cause later full requests to return stale-incomplete data. `complete`
     // is judged on Strava's RAW page size, never the GPS-filtered count: a full
     // page of 200 with 129 GPS runs is NOT the last page (real user hit this —
@@ -88,6 +160,10 @@ activitiesRouter.get('/activities', async (req, res) => {
     const isPartial = !complete;
     if (!isPartial) {
       cache.set(session.athleteId, { activities, tracks, fetchedAt: Date.now() });
+    } else if (quick) {
+      // Partial quick response = page 1 of a progressive load; anchor the
+      // pending assembly so pages 2+ can complete it into the cache.
+      startPendingAssembly(session.athleteId, { activities, tracks });
     }
 
     console.log(`Returning ${activities.length} activities, ${Object.keys(tracks).length} with tracks (partial=${isPartial})`);
