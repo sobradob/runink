@@ -32,6 +32,14 @@ import { ThemeStrip } from '@/features/theme/ui/ThemeGallery';
 /** Flip to false to fall back to the old Canvas-based renderer */
 const USE_CAPTURE_RENDERER = true;
 
+/** Free exports render server-side at this DPI ceiling. Print DPI (300) makes
+ *  the render viewport ~16.7M px, which software WebGL on the 1-vCPU box
+ *  cannot rasterize inside the 45 s server timeout (2026-06-12: every free
+ *  export timed out, even single tracks). 150 DPI is the configuration the
+ *  smoke tests have always proven (renders in 2-7 s) and is plenty for a
+ *  shared image. Paid prints keep full DPI via the order route. */
+const FREE_EXPORT_MAX_DPI = 150;
+
 /** When true (set VITE_RENDER_ON_SERVER=true), paid-print orders use the
  *  server-side Playwright renderer instead of rendering in the browser.
  *  Guarantees WYSIWYG fidelity and full print DPI on every device. See
@@ -339,7 +347,10 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     // Free exports, first choice: server-side Playwright render.
     if (RENDER_ON_SERVER) {
       try {
-        const dims = config.dimensions;
+        const dims = {
+          ...config.dimensions,
+          dpi: Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI),
+        };
         const blob = await renderExportOnServer(buildServerPayload(dims), {
           widthMm: dims.widthMm,
           heightMm: dims.heightMm,
@@ -349,8 +360,12 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         return await applyWatermark(blob);
       } catch (e) {
         // Server unreachable, busy, or rate-limited — client paths below
-        // still produce a usable (preview-resolution) export.
+        // still produce a usable (preview-resolution) export. Breadcrumb to
+        // Mixpanel so silent fallbacks are visible in the funnel.
         console.warn('[render] Server export failed, falling back to client capture:', e);
+        window.mixpanel?.track('export_server_fallback', {
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
     }
 
