@@ -1,7 +1,8 @@
 import type { Theme } from '@/types/theme';
 import type { TrackData } from '@/types/activity';
 import { getAllThemes } from '../infrastructure/themeRepository';
-import { RoutePreview, useRoutePreviewPoints } from './RoutePreview';
+import { RoutePreview } from './RoutePreview';
+import { useRoutePreviewPoints } from './routePreviewGeometry';
 
 interface ThemeGalleryProps {
   selectedId: string;

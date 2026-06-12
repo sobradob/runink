@@ -3,9 +3,12 @@
   "configurations": [
     {
       "name": "runink-dev",
-      "runtimeExecutable": "/bin/sh",
-      "runtimeArgs": ["-c", "export PATH=/Users/boazsobrado/.nvm/versions/node/v22.17.0/bin:$PATH && cd /Users/boazsobrado/Desktop/codes/building/websites/runink && npx vite --port 5174"],
-      "port": 5174
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5175", "--strictPort"],
+      "port": 5175,
+      "env": {
+        "VITE_USE_DEMO_DATA": "true"
+      }
     }
   ]
 }

@@ -15,3 +15,4 @@ smoke-inspect.png
 smoke-inspect.html
 # Generated/exported DO app spec — contains encrypted secret EVs, not for git
 .do/app.proposed.yaml
+dist-demo/

@@ -7,7 +7,6 @@ import { ThemeGallery } from '@/features/theme/ui/ThemeGallery';
 
 interface SettingsPanelProps {
   config: PosterConfig;
-  theme: Theme;
   mode: 'individual' | 'compilation';
   /** Route data for theme chip previews */
   tracks?: TrackData[];
@@ -58,7 +57,6 @@ export function SettingsActions({
 
 export function SettingsPanel({
   config,
-  theme,
   mode,
   tracks,
   showKmMarkers,

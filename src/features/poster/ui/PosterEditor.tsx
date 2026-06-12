@@ -195,9 +195,12 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     }
   }, [mode, activities, loadTracks]);
 
-  const tracks: TrackData[] = mode === 'individual'
-    ? (singleTrack ? [singleTrack] : [])
-    : compilationTracks;
+  // Stable identity matters: theme chip geometry and marker generation are
+  // memoized on `tracks`, so don't rebuild the array on every render.
+  const tracks: TrackData[] = useMemo(
+    () => (mode === 'individual' ? (singleTrack ? [singleTrack] : []) : compilationTracks),
+    [mode, singleTrack, compilationTracks],
+  );
 
   // Auto-generate markers from tracks
   const autoMarkers = useMemo(() => {
@@ -476,7 +479,6 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
 
   const settingsPanelProps = {
     config,
-    theme,
     mode,
     tracks,
     showKmMarkers,
