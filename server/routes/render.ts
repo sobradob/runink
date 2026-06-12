@@ -194,7 +194,9 @@ if (SMOKE_ENDPOINTS_ENABLED) {
   renderRouter.post('/_smoke', async (req, res) => {
     const { payload, dimensions } = req.body as {
       payload?: RenderPayload;
-      dimensions?: { widthMm: number; heightMm: number; dpi: number };
+      // deviceScaleFactor is smoke-only plumbing for measuring render cost
+      // at reduced CSS viewports (see RenderOptions.deviceScaleFactor).
+      dimensions?: { widthMm: number; heightMm: number; dpi: number; deviceScaleFactor?: number };
     };
     if (!payload || !dimensions) {
       return res.status(400).json({ error: 'Missing payload or dimensions' });

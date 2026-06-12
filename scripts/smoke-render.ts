@@ -15,6 +15,11 @@
  *   npx tsx scripts/smoke-render.ts
  *
  * Writes `smoke-render.png` at repo root on success.
+ *
+ * Dimension overrides (print-DPI regression checks; defaults = smokeDimensions):
+ *   SMOKE_DPI=300 SMOKE_WIDTH_MM=300 SMOKE_HEIGHT_MM=400 SMOKE_DSF=2 npx tsx scripts/smoke-render.ts
+ * High-DPI renders are CPU-bound in software WebGL — pair with a raised
+ * RENDER_TIMEOUT_MS on the server when measuring.
  */
 import fs from 'fs';
 import path from 'path';
@@ -26,15 +31,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const port = parseInt(process.env.PORT || '8099', 10);
 const url = `http://127.0.0.1:${port}/api/render/_smoke`;
 
+function envNum(name: string): number | undefined {
+  const n = parseFloat(process.env[name] || '');
+  return Number.isFinite(n) ? n : undefined;
+}
+
+const dimensions = {
+  widthMm: envNum('SMOKE_WIDTH_MM') ?? smokeDimensions.widthMm,
+  heightMm: envNum('SMOKE_HEIGHT_MM') ?? smokeDimensions.heightMm,
+  dpi: envNum('SMOKE_DPI') ?? smokeDimensions.dpi,
+  ...(envNum('SMOKE_DSF') ? { deviceScaleFactor: envNum('SMOKE_DSF') } : {}),
+};
+
 async function main() {
-  console.log(`[smoke] POST ${url}`);
+  console.log(`[smoke] POST ${url} dimensions=${JSON.stringify(dimensions)}`);
   const started = Date.now();
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       payload,
-      dimensions: smokeDimensions,
+      dimensions,
     }),
   });
 

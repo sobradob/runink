@@ -136,13 +136,38 @@ jobs:
       - name: Run smoke render (inside container)
         run: docker exec -e PORT=8099 runink-smoke node --import tsx scripts/smoke-render.ts
 
+      - name: Stash 150 DPI PNG before the 300 DPI run overwrites it
+        run: docker cp runink-smoke:/app/smoke-render.png ./smoke-render.png
+
+      - name: Run smoke render at print DPI (300, inside container)
+        # Paid orders render at 300 DPI — the resolution that timed out in
+        # production on 2026-06-12 (software WebGL at a print-pixel viewport).
+        # The renderer now keeps the CSS viewport at the 150 DPI layout size
+        # and carries print resolution via deviceScaleFactor, so this must
+        # finish within the default RENDER_TIMEOUT_MS for the step to pass.
+        run: docker exec -e PORT=8099 -e SMOKE_DPI=300 runink-smoke node --import tsx scripts/smoke-render.ts
+
+      - name: Assert 300 DPI PNG is full print resolution
+        run: |
+          docker cp runink-smoke:/app/smoke-render.png ./smoke-render-300.png
+          node -e '
+            const b = require("fs").readFileSync("smoke-render-300.png");
+            const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
+            console.log(`300 DPI PNG: ${w}x${h}, ${b.length} bytes`);
+            // 300x400mm at 300 DPI = 3543x4724 print px; the halved CSS
+            // viewport rounds up, so deviceScaleFactor=2 yields 3544x4724.
+            if (Math.abs(w - 3543) > 2 || Math.abs(h - 4724) > 2) {
+              console.error(`::error::expected ~3543x4724, got ${w}x${h}`); process.exit(1);
+            }
+            if (b.length < 50000) {
+              console.error(`::error::300 DPI PNG suspiciously small (${b.length} bytes)`); process.exit(1);
+            }
+          '
+
       - name: Run smoke export (inside container)
         # Exercises the free-export route end-to-end (session auth + render +
         # PNG streaming). The script self-asserts content type and >50 KB.
         run: docker exec -e PORT=8099 runink-smoke node --import tsx scripts/smoke-export.ts
-
-      - name: Copy PNG out of container
-        run: docker cp runink-smoke:/app/smoke-render.png ./smoke-render.png
 
       - name: Assert PNG non-trivial (> 50 KB)
         run: |
@@ -162,7 +187,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smoke-render-png
-          path: smoke-render.png
+          path: |
+            smoke-render.png
+            smoke-render-300.png
           if-no-files-found: ignore
 
       - name: Container logs on failure

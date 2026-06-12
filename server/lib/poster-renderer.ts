@@ -38,7 +38,12 @@ interface PendingPayload {
 }
 
 const TOKEN_TTL_MS = 60_000;
-const RENDER_TIMEOUT_MS = 45_000;
+/** How long we wait for the internal page to signal __POSTER_READY__.
+ *  Print-DPI renders are CPU-bound in software WebGL on the 1-vCPU production
+ *  box: 30×40 cm at 300 DPI measured 23.5 s at 1 CPU-limited local core, and
+ *  the DO shared vCPU is slower still, so 45 s was not enough. Env-overridable
+ *  for measurement runs (raise it and time an unclamped render). */
+const RENDER_TIMEOUT_MS = parseInt(process.env.RENDER_TIMEOUT_MS || '', 10) || 120_000;
 /** Max concurrent renders. Each render holds a Chromium context (~80-150 MB).
  *  On the 2 GB DO instance, 2 is the safe cap before we risk OOM. */
 const MAX_CONCURRENT_RENDERS = 2;
@@ -153,7 +158,26 @@ export interface RenderOptions {
   internalBaseUrl: string;
   /** Correlation ID propagated through logs. */
   requestId?: string;
+  /** Override the automatic dpi/LAYOUT_DPI device scale factor (smoke tests
+   *  only — e.g. force 1 to reproduce the raw-print-pixel-viewport layout). */
+  deviceScaleFactor?: number;
 }
+
+/**
+ * The DPI whose CSS viewport defines the poster's LAYOUT. The overlay text
+ * and route line widths are fixed CSS px, so the CSS viewport size decides
+ * their size relative to the poster. 150 DPI is the layout every render that
+ * ever shipped used (CI smoke, free exports); higher print DPIs reproduce it
+ * via deviceScaleFactor = dpi/150 instead of inflating the CSS viewport.
+ *
+ * Rendering 300 DPI at deviceScaleFactor 1 was doubly wrong: fixed-px text
+ * laid out in a doubled CSS viewport came out half the intended size
+ * (illegibly small stats block), and the 2× CSS viewport made software WebGL
+ * lay out 4× the tile work — 49.5 s vs 23.5 s for 30×40 cm at 1 CPU. The
+ * map raster gains nothing from the bigger viewport either: MapLibre clamps
+ * the WebGL canvas to maxCanvasSize 4096×4096 in both cases.
+ */
+const LAYOUT_DPI = 150;
 
 /**
  * Render the poster to a PNG buffer at the requested print dimensions.
@@ -170,15 +194,22 @@ export async function renderPoster(
   const token = storePayload(payload);
   const url = `${opts.internalBaseUrl}/internal/render-poster/${token}`;
 
-  const viewportWidth = mmToPx(opts.widthMm, opts.dpi);
-  const viewportHeight = mmToPx(opts.heightMm, opts.dpi);
+  // CSS viewport stays at the 150 DPI layout size; deviceScaleFactor carries
+  // the rest of the print resolution. Output = viewport × dsf, which can land
+  // ±1 px off the exact print pixel count from rounding — 0.1 mm on paper,
+  // irrelevant against print bleed.
+  const dsf = opts.deviceScaleFactor ?? Math.max(1, opts.dpi / LAYOUT_DPI);
+  const viewportWidth = Math.round(mmToPx(opts.widthMm, opts.dpi) / dsf);
+  const viewportHeight = Math.round(mmToPx(opts.heightMm, opts.dpi) / dsf);
 
   const started = Date.now();
   try {
     const browser = await getBrowser();
     const context = await browser.newContext({
       viewport: { width: viewportWidth, height: viewportHeight },
-      deviceScaleFactor: 1, // already rendering at print-pixel viewport size
+      // dsf=1: viewport is already print pixels. dsf>1: Chromium rasterises
+      // at viewport×dsf, so the screenshot still comes out at print pixels.
+      deviceScaleFactor: dsf,
     });
 
     try {
@@ -211,8 +242,9 @@ export async function renderPoster(
         requestId,
         outcome: 'ok',
         durationMs: Date.now() - started,
-        widthPx: viewportWidth,
-        heightPx: viewportHeight,
+        widthPx: Math.round(viewportWidth * dsf),
+        heightPx: Math.round(viewportHeight * dsf),
+        deviceScaleFactor: dsf,
         bufferBytes: buf.length,
       });
       return buf;
