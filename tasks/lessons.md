@@ -130,3 +130,11 @@ Set `font-display: block` on every `@font-face` so layout uses invisible glyphs 
 - CI workflow (`.github/workflows/build.yml`) catches build failures before DO even tries.
 - After any push to main, check deploy status within a few minutes. Either via DO dashboard or `doctl apps list-deployments <app-id>`.
 - Don't declare work "shipped" until a successful production deploy is confirmed.
+
+## 2026-06-11: BUILD_TIME env vars need explicit ARG declarations in Dockerfile builds
+**Failure mode:** Switching from buildpack to Dockerfile deployment (2026-05-22) silently disabled `VITE_RENDER_ON_SERVER`. DO passes BUILD_TIME env vars to Docker builds as build args, but build args are invisible unless the Dockerfile declares a matching `ARG`. Vite folded the undefined flag to `false` and dead-code-eliminated the entire client-side server-render path. Paid orders silently reverted to the legacy client renderer for ~3 weeks; the mobile black-export fix shipped 2026-06-11 was inert on arrival.
+**Detection:** Mobile export still black after deploy. Mixpanel `export_completed.render_path` said `capture`; production logs had zero `render.export` entries; DO app spec showed the var correctly set. Definitive proof: `grep -c "render/export" <prod bundle>` → 0 (dead-code-eliminated) vs 1 in a local build with the flag set.
+**Prevention:**
+- Every `VITE_*` BUILD_TIME var in the DO spec needs `ARG X` + `ENV X=$X` in the Dockerfile before `npm run build`.
+- The env-var *spec* being right proves nothing about the *bundle*. Verify behaviorally: grep the built bundle for a marker string that only survives DCE when the flag is on. CI now asserts this (`smoke-render.yml` "Assert client bundle has the server-render path").
+- Flag-gated client features deserve a telemetry property (like `render_path`) from day one — it's what made this diagnosable in one query.
