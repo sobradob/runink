@@ -4,6 +4,7 @@ type SheetSnap = 'collapsed' | 'half' | 'full';
 
 const COLLAPSED_HEIGHT = 165; // px — fits drag handle + Customize button + Export + Order buttons
 const THEME_STRIP_HEIGHT = 64; // px — extra collapsed height when a theme strip is present
+const STEPS_RAIL_HEIGHT = 44; // px — extra collapsed height when a guided-step rail is present
 const DRAG_THRESHOLD = 40;
 
 interface MobileSettingsSheetProps {
@@ -12,8 +13,12 @@ interface MobileSettingsSheetProps {
   actionButtons: ReactNode;
   /** Slot for the always-visible theme switcher strip, above the action buttons */
   themeStrip?: ReactNode;
+  /** Slot for the guided-step rail (Theme → Text → Size), above the theme strip */
+  stepsRail?: ReactNode;
   /** Imperative collapse ref */
   collapseRef?: React.MutableRefObject<(() => void) | null>;
+  /** Imperative expand-to-full ref (used by the guided-step rail) */
+  expandRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 function snapToHeight(snap: SheetSnap, collapsedHeight: number): string {
@@ -24,7 +29,7 @@ function snapToHeight(snap: SheetSnap, collapsedHeight: number): string {
   }
 }
 
-export function MobileSettingsSheet({ children, actionButtons, themeStrip, collapseRef }: MobileSettingsSheetProps) {
+export function MobileSettingsSheet({ children, actionButtons, themeStrip, stepsRail, collapseRef, expandRef }: MobileSettingsSheetProps) {
   const [snap, setSnap] = useState<SheetSnap>('collapsed');
   const [dragDelta, setDragDelta] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -35,6 +40,7 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, colla
   const scrollExpandArmed = useRef(true);
 
   const collapse = useCallback(() => setSnap('collapsed'), []);
+  const expandFull = useCallback(() => setSnap('full'), []);
 
   // Expose collapse to parent for export flow
   useEffect(() => {
@@ -44,6 +50,15 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, colla
       collapseRef.current = null;
     };
   }, [collapseRef, collapse]);
+
+  // Expose expand-to-full so the guided-step rail can deep-link into a section
+  useEffect(() => {
+    if (!expandRef) return;
+    expandRef.current = expandFull;
+    return () => {
+      expandRef.current = null;
+    };
+  }, [expandRef, expandFull]);
 
   const isExpanded = snap !== 'collapsed';
 
@@ -106,7 +121,9 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, colla
   };
 
   // Compute the CSS height, applying drag offset
-  const collapsedHeight = COLLAPSED_HEIGHT + (themeStrip ? THEME_STRIP_HEIGHT : 0);
+  const collapsedHeight = COLLAPSED_HEIGHT
+    + (themeStrip ? THEME_STRIP_HEIGHT : 0)
+    + (stepsRail ? STEPS_RAIL_HEIGHT : 0);
   const baseHeight = snapToHeight(snap, collapsedHeight);
   const heightStyle = isDragging && dragDelta !== 0
     ? `calc(${baseHeight} - ${dragDelta}px)`
@@ -150,6 +167,14 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, colla
             {isExpanded ? 'Close settings' : 'Customize poster'}
           </div>
         </button>
+
+        {/* Guided-step rail — Theme → Text → Size, always visible so the next
+            step is one tap away in every snap state */}
+        {stepsRail && (
+          <div className="flex-shrink-0 pb-2">
+            {stepsRail}
+          </div>
+        )}
 
         {/* Theme strip — always visible in every snap state so the
             highest-impact edit never needs the sheet opened */}

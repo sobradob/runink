@@ -1,9 +1,15 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import type { ActivitySummary } from '@/types/activity';
 import { useActivityIndex } from '@/features/data-import/hooks/useActivityData';
 import { ActivityBrowser } from '@/features/data-import/ui/ActivityBrowser';
 import { StravaConnectButton } from '@/features/data-import/ui/StravaConnectButton';
 import { PosterEditor } from '@/features/poster/ui/PosterEditor';
+import { ModeSelect } from '@/features/onboarding/ui/ModeSelect';
+import {
+  loadOutputMode,
+  saveOutputMode,
+  type OutputMode,
+} from '@/features/onboarding/services/outputMode';
 import { DiagnosticOverlay, useLongPress } from '@/features/diagnostics/DiagnosticOverlay';
 import { OfflineToast } from '@/features/diagnostics/OfflineToast';
 import { getGiftContext, persistGiftContext, type GiftContext } from '@/features/checkout/services/checkoutApi';
@@ -121,6 +127,31 @@ function MainApp({ logoLongPress }: MainAppProps) {
   const [view, setView] = useState<View>(getInitialView);
   const [giftContext, setGiftContext] = useState<GiftContext | null>(() => getGiftContext());
 
+  // The output the user is building. Null until they pick on the ModeSelect
+  // screen (shown during the Strava load). Starts null every session so the
+  // choice screen fills the unavoidable load wait — but the previous choice is
+  // pre-highlighted via loadOutputMode().
+  const [outputMode, setOutputMode] = useState<OutputMode | null>(null);
+
+  const chooseMode = useCallback((mode: OutputMode) => {
+    setOutputMode(mode);
+    saveOutputMode(mode);
+    window.mixpanel?.track('output_mode_selected', { mode });
+  }, []);
+
+  // Persistent Switch action — available on every connected surface. Toggles
+  // the output mode and returns to the browser so the user can pick run(s) for
+  // the new mode; cross-mode styling is preserved by the editor's carryover.
+  const switchMode = useCallback(() => {
+    setOutputMode((prev) => {
+      const next: OutputMode = prev === 'single' ? 'composite' : 'single';
+      saveOutputMode(next);
+      window.mixpanel?.track('output_mode_switched', { to: next });
+      return next;
+    });
+    setView({ type: 'browse' });
+  }, []);
+
   // Privacy policy page
   if (view.type === 'privacy') {
     return <PrivacyPolicy />;
@@ -190,6 +221,8 @@ function MainApp({ logoLongPress }: MainAppProps) {
         mode="individual"
         stravaTracksMap={stravaTracksMap}
         onBack={() => setView({ type: 'browse' })}
+        onSwitchMode={switchMode}
+        switchTargetLabel="composite"
         giftContext={giftContext}
       />
     );
@@ -202,6 +235,8 @@ function MainApp({ logoLongPress }: MainAppProps) {
         mode="compilation"
         stravaTracksMap={stravaTracksMap}
         onBack={() => setView({ type: 'browse' })}
+        onSwitchMode={switchMode}
+        switchTargetLabel="single"
         giftContext={giftContext}
       />
     );
@@ -317,6 +352,21 @@ function MainApp({ logoLongPress }: MainAppProps) {
     );
   }
 
+  // Output-mode gate: once connected, the user picks single vs composite on the
+  // ModeSelect screen before browsing. Shown during the Strava load so the wait
+  // is productive. Gated on `connected` so an unauthenticated first paint never
+  // flashes this before the connect screen.
+  if (stravaAuth.connected && outputMode === null) {
+    return (
+      <ModeSelect
+        current={loadOutputMode()}
+        loading={loading || stravaLoading}
+        loadedCount={index?.totalActivities ?? 0}
+        onSelect={chooseMode}
+      />
+    );
+  }
+
   // Main app: activity browser
   return (
     <div className="h-dvh flex flex-col">
@@ -329,9 +379,24 @@ function MainApp({ logoLongPress }: MainAppProps) {
           >
             RunInk
           </h1>
-          <span className="text-xs text-white/30 hidden md:inline">Your runs, beautifully mapped</span>
+          <span className="text-xs text-white/30 hidden md:inline">
+            {outputMode === 'composite' ? 'Composite — many runs in one' : 'Single run poster'}
+          </span>
         </div>
         <div className="ml-auto flex items-center gap-3">
+          {outputMode && (
+            <button
+              onClick={switchMode}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border border-white/15 text-white/60 hover:text-white hover:border-white/30 transition-colors"
+              title={`Switch to ${outputMode === 'single' ? 'composite' : 'single'} mode`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+              <span className="hidden sm:inline">Switch to {outputMode === 'single' ? 'composite' : 'single'}</span>
+              <span className="sm:hidden">Switch</span>
+            </button>
+          )}
           <a
             href="/privacy"
             onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/privacy'); setView({ type: 'privacy' }); }}
@@ -417,9 +482,12 @@ function MainApp({ logoLongPress }: MainAppProps) {
           </div>
         )}
 
-        {index && !stravaLoading && (
+        {index && !stravaLoading && outputMode && (
           <ActivityBrowser
             activities={index.activities}
+            outputMode={outputMode}
+            syncingMore={syncingMore}
+            loadedCount={index.totalActivities}
             onSelectSingle={(activity) => {
               window.mixpanel?.track('activity_selected', { mode: 'individual', activity_count: 1 });
               setView({ type: 'individual', activity });

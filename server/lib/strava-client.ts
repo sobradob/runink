@@ -192,6 +192,9 @@ export interface StravaActivity {
   max_heartrate?: number;
   average_cadence?: number;
   calories?: number;
+  /** Strava's run/ride sub-type. For runs: 0 default, 1 race, 2 long run, 3 workout.
+   *  For rides: 10 default, 11 race, 12 workout. Absent on many activities. */
+  workout_type?: number | null;
   location_city?: string | null;
   location_state?: string | null;
   location_country?: string;
