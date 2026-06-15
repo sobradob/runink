@@ -388,6 +388,35 @@ function MainApp({ logoLongPress }: MainAppProps) {
           </div>
         )}
 
+        {/* Empty state: Strava is connected and we finished loading, but the
+            account has no GPS-bearing activities to show (e.g. only treadmill
+            workouts, gym sessions, or manually-entered runs without GPS — see
+            the GPS_ACTIVITY_TYPES filter in server/lib/strava-client.ts).
+            Without this branch the <main> renders nothing and the user sees a
+            bare black screen with no explanation. Gated on !syncingMore so the
+            background-sync pill owns the "still arriving" case. */}
+        {!loading && !stravaLoading && !error && !index && !syncingMore && stravaAuth.connected && (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center max-w-md px-8">
+              <div className="text-lg text-white/70 mb-3" style={{ fontFamily: 'var(--font-display)' }}>
+                No GPS runs found
+              </div>
+              <p className="text-white/40 text-sm mb-6 leading-relaxed">
+                You're connected to Strava, but we couldn't find any activities with
+                GPS data to map. RunInk needs runs, rides, walks or hikes recorded
+                with GPS — treadmill workouts, gym sessions and manually-added
+                activities won't appear here.
+              </p>
+              <button
+                onClick={refreshStrava}
+                className="text-sm px-4 py-2 rounded-lg bg-white/5 text-white/60 hover:text-white/90 hover:bg-white/10 transition-colors"
+              >
+                ↻ Refresh from Strava
+              </button>
+            </div>
+          </div>
+        )}
+
         {index && !stravaLoading && (
           <ActivityBrowser
             activities={index.activities}
