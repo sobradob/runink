@@ -19,6 +19,8 @@ export interface ActivitySummary {
   calories: number;
   location: string;
   sportType: string;
+  /** Strava run/ride sub-type (1 = race for runs, 11 for rides). null when absent. */
+  workoutType: number | null;
   startPoint: { lat: number; lng: number } | null;
   endPoint: { lat: number; lng: number } | null;
   bounds: { minLat: number; maxLat: number; minLng: number; maxLng: number } | null;
@@ -77,6 +79,7 @@ export function stravaToActivitySummary(raw: StravaActivity): ActivitySummary {
     calories: raw.calories ?? 0,
     location,
     sportType: raw.sport_type || raw.type || 'Run',
+    workoutType: raw.workout_type ?? null,
     startPoint: raw.start_latlng ? { lat: raw.start_latlng[0], lng: raw.start_latlng[1] } : null,
     endPoint: raw.end_latlng ? { lat: raw.end_latlng[0], lng: raw.end_latlng[1] } : null,
     bounds,

@@ -1,5 +1,56 @@
 # RunInk — TODO
 
+## In progress: BOA-85 + BOA-86 mobile-first redesign (2026-06-14)
+
+Plan: tasks/boa-85-86-plan.md. Cohesive redesign — mode-select during load + per-mode browse + guided editor.
+
+### Slice B — backend hero signal (unblocks single mode)
+- [x] strava-client: add `workout_type?` to StravaActivity
+- [x] transform: map `workoutType` onto server ActivitySummary
+- [x] types/activity: add `workoutType?` to ActivitySummary
+- [x] heroRuns service: `isRace()` + `rankHeroRuns()` (longest + race) + DISTANCE_BANDS
+
+### Slice A — mode select + switch plumbing
+- [x] outputMode service: type + localStorage persist + shared poster-style carryover
+- [x] ModeSelect screen (mobile-first, two cards, example previews, reassurance)
+- [x] App.tsx: modeselect gate during load (gated on connected); browse per mode; persistent Switch
+
+### Slice C — per-mode browse
+- [x] ActivityBrowser mode-aware: composite = filter-driven auto-include + live "more loading"
+- [x] Single = hero "Suggested" grid + distance-band pills (keep search/date/type)
+
+### Slice D — guided editor (BOA-85)
+- [x] Guided-skippable steps Theme→Text→Size on mobile (EditorSteps rail); theme leads; export always available
+- [x] Persistent Switch button in editor top bar + cross-mode style carryover
+
+### Slice E — assets + analytics
+- [x] ModeSelect example visuals — REAL renders from demo data (single 102k Hammersmith,
+      London composite) via scripts/gen-mode-examples.mjs → public/assets/examples/{single,composite}.png
+- [x] Analytics: output_mode_selected / output_mode_switched / editor_step_opened
+
+### Verify
+- [x] tsc clean; vite build clean; eslint touched = only 2 pre-existing baseline (App.tsx)
+- [x] mobile smoke (scripts/smoke-mode-flow.mjs): ModeSelect → single browse (Suggested) →
+      editor (steps rail) → Size step expands → Switch → composite browse (auto-include) →
+      dispersion warning → composite editor. 0 page errors. Screenshots in /tmp/*.png
+- [x] fixed old scripts/smoke-theme-strip.mjs to click through the ModeSelect gate
+
+### Results (2026-06-14)
+Shipped the cohesive redesign. New files: src/features/onboarding/{services/outputMode.ts,
+ui/ModeSelect.tsx}, src/features/data-import/services/heroRuns.ts,
+src/features/poster/ui/EditorSteps.tsx, scripts/smoke-mode-flow.mjs. Changed: App.tsx
+(mode gate + Switch), ActivityBrowser (mode-aware rewrite), SettingsPanel (controllable
+accordion + reorder Theme/Text/Size first), MobileSettingsSheet (stepsRail + expandRef),
+PosterEditor (Switch + steps + carryover), server transform/strava-client + types/activity
+(workoutType). Pricing untouched. Switch preserves theme/layers/size/title/display/bearing
+via runink:posterStyle:v1; subtitle/km-markers intentionally not carried.
+
+Working notes: mode at App level `outputMode: 'single'|'composite'`, starts null each
+session so the choice fills the load wait (prev choice pre-highlighted). workout_type run
+race=1, ride=11. Demo data spans the globe → composite always trips the dispersion warning.
+
+---
+
 ## In progress: 300 DPI order renders time out on prod (2026-06-12)
 
 Goal: paid print orders request 300 DPI via POST /api/render/order/:orderId; on the

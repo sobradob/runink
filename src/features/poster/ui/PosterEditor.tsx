@@ -22,8 +22,10 @@ import { getDefaultTheme, getThemeById } from '@/features/theme/infrastructure/t
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
 import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
-import { SettingsPanel, SettingsActions } from './SettingsPanel';
+import { SettingsPanel, SettingsActions, type SettingsPanelControl } from './SettingsPanel';
 import { MobileSettingsSheet } from './MobileSettingsSheet';
+import { EditorSteps, type EditorStep } from './EditorSteps';
+import { loadPosterStyle, savePosterStyle } from '@/features/onboarding/services/outputMode';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
 import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer';
 import { applyWatermark } from '../infrastructure/renderer/watermark';
@@ -70,6 +72,10 @@ interface PosterEditorProps {
   mode: 'individual' | 'compilation';
   stravaTracksMap?: Record<string, TrackData>;
   onBack: () => void;
+  /** Switch to the other output mode (preserves styling via carryover). */
+  onSwitchMode?: () => void;
+  /** Label of the mode the Switch button moves to (e.g. "composite"). */
+  switchTargetLabel?: string;
   giftContext?: GiftContext | null;
 }
 
@@ -115,7 +121,7 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBack, giftContext }: PosterEditorProps) {
+export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBack, onSwitchMode, switchTargetLabel, giftContext }: PosterEditorProps) {
   // Stable draft key derived from mode + activity-id-set. Different
   // activities get different drafts; reopening the same set restores
   // edit state across refresh/tab-kill.
@@ -134,22 +140,34 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     [], // intentionally one-shot: switching activities should re-mount this component
   );
 
+  // Cross-mode styling carried over from the previous mode via the Switch
+  // button. Only consulted when there's no activity-specific restored draft —
+  // a saved draft for this exact run-set always wins. Gift size still overrides
+  // any carried dimension. This is how "keep everything possible" works when
+  // switching: theme, layers, size, title, display toggles and orientation
+  // follow the user across modes.
+  const carryover = useMemo(() => (restored ? null : loadPosterStyle()), [restored]);
+
   const [config, setConfig] = useState<PosterConfig>(() => restored?.config ?? {
     mode,
-    themeId: 'noir',
-    dimensions: giftContext ? presetForTier(giftContext.tier) : POSTER_PRESETS[0],
-    title: mode === 'individual'
+    themeId: carryover?.themeId ?? 'noir',
+    dimensions: giftContext
+      ? presetForTier(giftContext.tier)
+      : (carryover
+          ? (POSTER_PRESETS.find((p) => p.label === carryover.dimensionsLabel) ?? POSTER_PRESETS[0])
+          : POSTER_PRESETS[0]),
+    title: carryover?.title ?? (mode === 'individual'
       ? (activity?.location || activity?.name || '')
-      : (activities?.[0]?.location || ''),
+      : (activities?.[0]?.location || '')),
     subtitle: mode === 'individual'
       ? formatDate(activity?.date ?? '')
       : '',
-    showStats: true,
-    showCoordinates: true,
-    showGradientFade: true,
+    showStats: carryover?.showStats ?? true,
+    showCoordinates: carryover?.showCoordinates ?? true,
+    showGradientFade: carryover?.showGradientFade ?? true,
     padding: 0.15,
-    bearing: 0,
-    layers: { ...DEFAULT_LAYERS },
+    bearing: carryover?.bearing ?? 0,
+    layers: carryover?.layers ? { ...carryover.layers } : { ...DEFAULT_LAYERS },
     markers: [],
   });
 
@@ -158,7 +176,9 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   // colour data on disk). On mount, if the restored draft pointed at a
   // theme that no longer exists, getThemeById falls back to the default.
   const [theme, setTheme] = useState<Theme>(() =>
-    restored?.themeId ? getThemeById(restored.themeId) : getDefaultTheme(),
+    restored?.themeId
+      ? getThemeById(restored.themeId)
+      : (carryover?.themeId ? getThemeById(carryover.themeId) : getDefaultTheme()),
   );
   const [exporting, setExporting] = useState(false);
   const [showKmMarkers, setShowKmMarkers] = useState<boolean>(restored?.showKmMarkers ?? false);
@@ -172,6 +192,22 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     { config, themeId: theme.id, showKmMarkers, showStartFinish },
   );
 
+  // Persist the cross-mode style carryover so a later Switch inherits this
+  // look. Style axis only (see PosterStyleCarryover) — never the date subtitle
+  // or km markers, which are single-run specifics.
+  useEffect(() => {
+    savePosterStyle({
+      themeId: theme.id,
+      layers: config.layers,
+      dimensionsLabel: config.dimensions.label,
+      title: config.title,
+      showStats: config.showStats,
+      showCoordinates: config.showCoordinates,
+      showGradientFade: config.showGradientFade,
+      bearing: config.bearing,
+    });
+  }, [theme.id, config.layers, config.dimensions.label, config.title, config.showStats, config.showCoordinates, config.showGradientFade, config.bearing]);
+
   // One per editor session — the component re-mounts when the user picks a
   // different activity set, so this fires once per poster being edited.
   useEffect(() => {
@@ -184,6 +220,18 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   const mapInstanceRef = useRef<maplibregl.Map | null>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const collapseSheetRef = useRef<(() => void) | null>(null);
+  const expandSheetRef = useRef<(() => void) | null>(null);
+  const settingsControlRef = useRef<SettingsPanelControl | null>(null);
+
+  // Guided-step rail: expand the sheet and jump to the tapped section. Theme is
+  // already always-visible via the strip, so it only needs the sheet expanded.
+  const handleStep = useCallback((step: EditorStep) => {
+    window.mixpanel?.track('editor_step_opened', { step, mode });
+    expandSheetRef.current?.();
+    if (step !== 'Theme') {
+      settingsControlRef.current?.openAndScroll(step);
+    }
+  }, [mode]);
 
   // Load track data (Strava tracks are in-memory, Garmin tracks fetched from files)
   const { track: singleTrack } = useTrack(mode === 'individual' ? activity?.id ?? null : null, stravaTracksMap);
@@ -526,8 +574,23 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
             </div>
           )}
 
-          <div className="ml-auto text-xs text-white/30 truncate max-w-[40%]">
-            {mode === 'individual' ? activity?.name : `${activities?.length ?? 0} runs`}
+          <div className="ml-auto flex items-center gap-3 min-w-0">
+            <span className="text-xs text-white/30 truncate hidden sm:inline max-w-[30vw]">
+              {mode === 'individual' ? activity?.name : `${activities?.length ?? 0} runs`}
+            </span>
+            {onSwitchMode && (
+              <button
+                onClick={onSwitchMode}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border border-white/15 text-white/60 hover:text-white hover:border-white/30 transition-colors flex-shrink-0"
+                title={`Switch to ${switchTargetLabel ?? 'the other mode'}`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                <span className="hidden sm:inline">Switch to {switchTargetLabel ?? 'other'}</span>
+                <span className="sm:hidden">Switch</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -583,6 +646,8 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       <div className="md:hidden">
         <MobileSettingsSheet
           collapseRef={collapseSheetRef}
+          expandRef={expandSheetRef}
+          stepsRail={<EditorSteps onStep={handleStep} />}
           themeStrip={
             <ThemeStrip
               selectedId={config.themeId}
@@ -600,7 +665,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
             />
           }
         >
-          <SettingsPanel {...settingsPanelProps} hideActions hideTheme />
+          <SettingsPanel {...settingsPanelProps} hideActions hideTheme controlRef={settingsControlRef} />
         </MobileSettingsSheet>
       </div>
     </div>

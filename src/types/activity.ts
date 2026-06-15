@@ -20,6 +20,9 @@ export interface ActivitySummary {
   calories: number;
   location: string;
   sportType: string;
+  /** Strava run/ride sub-type (1 = race for runs, 11 for rides). Absent for
+   *  demo data and older cached activities — treat undefined as "unknown". */
+  workoutType?: number | null;
   startPoint: GeoPoint | null;
   endPoint: GeoPoint | null;
   bounds: {

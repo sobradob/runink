@@ -38,7 +38,10 @@ const page = await browser.newPage({
 page.on('pageerror', (e) => console.error('PAGE ERROR:', e.message));
 
 await page.goto('http://127.0.0.1:4179/');
-// Demo mode: activity browser should render with sample activities
+// Demo mode now lands on the ModeSelect gate (BOA-86) — pick Single run first.
+await page.waitForSelector('text=What do you want to make?', { timeout: 15000 });
+await page.click('button:has-text("Single run")');
+// Then the activity browser renders with sample activities
 await page.waitForSelector('text=Los Angeles - Base', { timeout: 15000 });
 await page.click('text=Los Angeles - Base');
 
