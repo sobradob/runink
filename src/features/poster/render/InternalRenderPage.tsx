@@ -136,6 +136,10 @@ export function InternalRenderPage({ token }: { token: string }) {
         height: '100vh',
         overflow: 'hidden',
         background: theme.colors.background,
+        // Query container for the StatsOverlay's cqw type sizing — matches the
+        // editor preview wrapper (PosterEditor) so text renders at the same
+        // proportion here as in the preview the user designed against.
+        containerType: 'inline-size',
       }}
     >
       <MapPreview
