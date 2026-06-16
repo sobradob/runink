@@ -92,6 +92,9 @@ function ModeCard({
           : 'border-white/10 hover:border-white/30 active:border-white/40'
       }`}
     >
+      <div className="px-4 py-3 border-b border-white/10">
+        <div className="text-base font-medium tracking-wide text-white">{label}</div>
+      </div>
       <div className="aspect-[4/5] w-full overflow-hidden bg-black">
         <img
           src={image}
@@ -101,7 +104,6 @@ function ModeCard({
         />
       </div>
       <div className="p-4">
-        <div className="text-base font-medium tracking-wide text-white mb-1">{label}</div>
         <p className="text-xs text-white/40 leading-relaxed">{description}</p>
       </div>
     </button>
