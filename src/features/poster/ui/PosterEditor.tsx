@@ -604,6 +604,10 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
               maxWidth: aspectRatio > 1 ? '80vh' : `${60 * aspectRatio}vh`,
               aspectRatio: String(aspectRatio),
               maxHeight: '80vh',
+              // Query container for the StatsOverlay's cqw type sizing, so the
+              // preview text scales with the poster width exactly as the export
+              // does (the server render page sets the same on [data-poster-root]).
+              containerType: 'inline-size',
             }}
           >
             <MapPreview

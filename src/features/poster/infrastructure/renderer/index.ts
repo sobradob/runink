@@ -203,8 +203,11 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
       ctx.fillRect(0, 0, renderWidth, renderHeight * 0.1);
     }
 
-    // Draw title text
-    const fontSize = Math.round(renderWidth * 0.04);
+    // Draw title text. Base ratio mirrors StatsOverlay's cqw type scale
+    // (title = 6cqw = 6% of width) so paid-order prints rendered here stay
+    // proportional to what the user designed in the preview. All other text
+    // sizes below derive from this, so they scale together.
+    const fontSize = Math.round(renderWidth * 0.06);
     const padding = Math.round(renderWidth * 0.05);
 
     ctx.textBaseline = 'bottom';
@@ -219,8 +222,8 @@ export async function renderPosterToBlob(options: RenderOptions): Promise<Blob> 
       renderHeight - padding - fontSize * 1.5
     );
 
-    // Subtitle
-    const subFontSize = Math.round(fontSize * 0.45);
+    // Subtitle — ratio matches the overlay's title:subtitle (3.5cqw / 6cqw).
+    const subFontSize = Math.round(fontSize * 0.58);
     ctx.font = `${subFontSize}px "Space Grotesk", sans-serif`;
     ctx.fillStyle = theme.colors.textSecondary;
     ctx.letterSpacing = '0.1em';
