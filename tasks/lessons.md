@@ -1,5 +1,15 @@
 # Lessons Learned
 
+## 2026-06-17: Demo-data poster generators need `public/data/` (gitignored)
+**Context:** The Playwright generators (`scripts/gen-mode-examples.mjs`, `gen-landing-themes.mjs`) drive the app in `VITE_USE_DEMO_DATA=true` mode, which fetches the demo dataset from `/data/index.json` + `/data/tracks/`. That dir (`public/data/`) is **gitignored**, so it's absent in fresh worktrees.
+
+**Failure mode:** generator times out waiting for an editor selector; the real cause is "Failed to load data — Unexpected token '<' … is not valid JSON" — the static server's catch-all returned `index.html` for the missing data file, and `res.json()` choked.
+
+**Prevention:**
+- Before running any demo-mode generator in a worktree, symlink the data from a checkout that has it: `ln -s /path/to/runink/public/data public/data` (gitignored, safe), then rebuild `dist-demo`.
+- When a Playwright setup step times out on a selector, screenshot the page first (`page.screenshot` in a try/catch) — the on-screen error message is the fastest path to root cause.
+- The preview MCP server can fail with `EPERM: uv_cwd` in sandboxed worktrees; fall back to serving the built `dist/` and screenshotting via Playwright.
+
 ## 2026-05-22: Mixpanel `client_error` event schema
 **Context:** Errors flow through `src/shared/diagnostics/errorReporter.ts`'s `reportError(err, ctx)` and land in Mixpanel as `client_error` events. Use this schema when building Mixpanel dashboards or funnels — don't reverse-engineer it from the code.
 

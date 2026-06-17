@@ -5,6 +5,7 @@ import { ActivityBrowser } from '@/features/data-import/ui/ActivityBrowser';
 import { StravaConnectButton } from '@/features/data-import/ui/StravaConnectButton';
 import { PosterEditor } from '@/features/poster/ui/PosterEditor';
 import { ModeSelect } from '@/features/onboarding/ui/ModeSelect';
+import { LandingPage } from '@/features/onboarding/ui/landing/LandingPage';
 import {
   loadOutputMode,
   saveOutputMode,
@@ -242,113 +243,27 @@ function MainApp({ logoLongPress }: MainAppProps) {
     );
   }
 
-  // Onboarding: not connected to Strava
+  // Onboarding: not connected to Strava — the public, scrollable landing page
+  // (clarity / example maps / themes / pricing / social proof) lives in
+  // LandingPage. It owns the connect CTA + auth-recovery alerts so this branch
+  // just wires App state and navigation into it.
   if (!loading && !stravaAuth.connected) {
     return (
-      <div className="h-screen flex flex-col bg-[#0a0a0a]">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-lg px-8">
-            <h1
-              className="text-4xl tracking-[0.2em] uppercase mb-3 select-none"
-              style={{ fontFamily: 'var(--font-display)' }}
-              {...logoLongPress}
-            >
-              RunInk
-            </h1>
-            <p className="text-white/40 text-sm mb-8 leading-relaxed">
-              Transform your running data into beautiful, printable map posters.
-              Connect your Strava account to get started.
-            </p>
-
-            {/* Targeted recovery prompts. authIssue is set when the user
-                connected without granting activity:read_all (the most common
-                cause of the previously-cryptic "HTTP 500") or when Strava
-                later revokes the session. Both render alongside the normal
-                connect button — we want the user to act, not just read. */}
-            {authIssue?.kind === 'missing_scope' && (
-              <div
-                role="alert"
-                className="mb-6 text-left text-xs text-amber-200/90 bg-amber-900/15 border border-amber-500/30 rounded-md px-4 py-3 leading-relaxed"
-              >
-                <div className="font-medium text-amber-200 mb-1">Almost there</div>
-                <div className="text-amber-100/80">
-                  Strava sent us back without the "View data about your activities"
-                  permission. Click Connect again and make sure that checkbox is
-                  ticked — it's how we read your runs to make the poster.
-                </div>
-              </div>
-            )}
-            {authIssue?.kind === 'session_invalid' && (
-              <div
-                role="alert"
-                className="mb-6 text-left text-xs text-red-200/90 bg-red-900/15 border border-red-500/30 rounded-md px-4 py-3 leading-relaxed"
-              >
-                <div className="font-medium text-red-200 mb-1">Your Strava session expired</div>
-                <div className="text-red-100/80">
-                  Reconnect Strava to pick up where you left off.
-                </div>
-              </div>
-            )}
-
-            <StravaConnectButton
-              auth={stravaAuth}
-              loading={stravaLoading}
-              onConnect={connectStrava}
-              onDisconnect={disconnectStrava}
-              onRefresh={refreshStrava}
-            />
-
-            {error && (
-              <div className="mt-6 text-red-400/60 text-xs">{error}</div>
-            )}
-
-            <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6 text-center">
-              <div>
-                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>INDIVIDUAL</div>
-                <div className="text-xs text-white/30">Single run posters with stats, km markers, and theme</div>
-              </div>
-              <div>
-                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>COMPILATION</div>
-                <div className="text-xs text-white/30">All your runs in a city layered into one heat-map poster</div>
-              </div>
-              <div>
-                <div className="text-lg mb-1" style={{ fontFamily: 'var(--font-display)' }}>10 THEMES</div>
-                <div className="text-xs text-white/30">Noir, Midnight Blue, Japanese Ink, and 7 more</div>
-              </div>
-            </div>
-
-            {/* Gift link */}
-            <div className="mt-10 pt-6 border-t border-white/5 space-y-4">
-              <a
-                href="/gift"
-                onClick={(e) => { e.preventDefault(); setView({ type: 'gift' }); }}
-                className="text-sm text-white/30 hover:text-white/60 transition-colors"
-              >
-                🎁 Gift a poster to a runner
-              </a>
-              {/* Strava attribution */}
-              <div className="flex justify-center">
-                <a href="https://www.strava.com" target="_blank" rel="noopener noreferrer">
-                  <img
-                    src="/assets/strava/powered-by-strava-white.svg"
-                    alt="Powered by Strava"
-                    className="h-5 opacity-30 hover:opacity-50 transition-opacity"
-                  />
-                </a>
-              </div>
-              <div className="flex justify-center">
-                <a
-                  href="/privacy"
-                  onClick={(e) => { e.preventDefault(); window.history.pushState({}, '', '/privacy'); setView({ type: 'privacy' }); }}
-                  className="text-xs text-white/20 hover:text-white/40 transition-colors"
-                >
-                  Privacy Policy
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <LandingPage
+        stravaAuth={stravaAuth}
+        stravaLoading={stravaLoading}
+        onConnect={connectStrava}
+        onDisconnect={disconnectStrava}
+        onRefresh={refreshStrava}
+        authIssue={authIssue}
+        error={error}
+        logoLongPress={logoLongPress}
+        onGift={() => setView({ type: 'gift' })}
+        onPrivacy={() => {
+          window.history.pushState({}, '', '/privacy');
+          setView({ type: 'privacy' });
+        }}
+      />
     );
   }
 

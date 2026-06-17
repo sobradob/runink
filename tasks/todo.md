@@ -1,5 +1,11 @@
 # RunInk — TODO
 
+## Done: BOA-116 homepage revamp (2026-06-17)
+Plan: tasks/boa-116-plan.md. Mobile-first scrollable LandingPage — hero example map,
+10-theme showcase (new scripts/gen-landing-themes.mjs → public/assets/landing/themes/),
+pricing ($25–$75 from tiers.ts), 2 placeholder testimonials (Kidwell, Groot). Build green;
+verified via Playwright screenshots (preview MCP blocked by EPERM in this env).
+
 ## In progress: BOA-85 + BOA-86 mobile-first redesign (2026-06-14)
 
 Plan: tasks/boa-85-86-plan.md. Cohesive redesign — mode-select during load + per-mode browse + guided editor.
