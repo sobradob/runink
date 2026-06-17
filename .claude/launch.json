@@ -9,6 +9,12 @@
       "env": {
         "VITE_USE_DEMO_DATA": "true"
       }
+    },
+    {
+      "name": "runink-landing",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5176", "--strictPort"],
+      "port": 5176
     }
   ]
 }
