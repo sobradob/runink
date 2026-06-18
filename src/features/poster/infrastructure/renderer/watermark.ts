@@ -51,16 +51,16 @@ export async function applyWatermark(blob: Blob): Promise<Blob> {
   for (let y = -span / 2; y <= span / 2; y += stepY, row++) {
     const offset = row % 2 === 0 ? 0 : stepX / 2;
     for (let x = -span / 2 - offset; x <= span / 2; x += stepX) {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.07)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.035)';
       ctx.fillText(MARK_TEXT, x + tileFont * 0.05, y + tileFont * 0.05);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.11)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
       ctx.fillText(MARK_TEXT, x, y);
     }
   }
   ctx.restore();
 
   // Corner credit, bottom-right
-  const cornerFont = Math.max(12, Math.round(base * 0.018));
+  const cornerFont = Math.max(16, Math.round(base * 0.024));
   const pad = cornerFont;
   ctx.font = `600 ${cornerFont}px "Space Grotesk", sans-serif`;
   ctx.textAlign = 'right';
