@@ -1,5 +1,32 @@
 # Lessons Learned
 
+## 2026-06-18: In a git worktree, Edit the worktree path — not the bare repo root (BOA-119)
+**Failure mode:** Working on branch `claude/sad-satoshi-a8cbe3` in a worktree under
+`.../runink/.claude/worktrees/sad-satoshi-a8cbe3/`, I passed Read/Edit/Write
+`file_path`s as `/.../runink/src/...` (the *main* checkout) instead of
+`/.../runink/.claude/worktrees/<wt>/src/...`. All edits landed in the main working
+tree (on an unrelated branch); the worktree's tracked files stayed unchanged.
+**Detection:** `git diff --stat` in the worktree was empty after "finishing"; the
+dev server (launched with cwd=worktree) served the OLD code, so verification
+passed *despite* the fix not being present.
+**Prevention:**
+- Derive the absolute base once (`git rev-parse --show-toplevel`) and prefix every
+  Edit/Write/Read `file_path` with it. Never hand-type the non-worktree root.
+- Before declaring done, run `git status`/`git diff --stat` in the worktree and
+  confirm the intended files actually show as modified there.
+
+## 2026-06-18: A passing verification proves nothing unless it reproduces the bug (BOA-119)
+**Failure mode:** First verification of the composite default-title fix passed —
+but on a fresh browser with empty localStorage, the *old* code also computes a
+sensible title (the bug needs a pre-existing carryover). And the basemap-race fix
+"passed" only because slow navigation let the old async resolve win the race. The
+test was green against unfixed code.
+**Prevention:** For a regression fix, the verification must first *reproduce* the
+failure, then show it gone. Here: seed `localStorage` `runink:posterStyle:v1` with
+the stale title; assert the new poster ignores it. For the tile race: assert ZERO
+requests to the empty bare-pattern `/planet/{z}/{x}/{y}.pbf` and ZERO 200/0-byte
+tiles — don't just check "a basemap appeared."
+
 ## 2026-06-17: Demo-data poster generators need `public/data/` (gitignored)
 **Context:** The Playwright generators (`scripts/gen-mode-examples.mjs`, `gen-landing-themes.mjs`) drive the app in `VITE_USE_DEMO_DATA=true` mode, which fetches the demo dataset from `/data/index.json` + `/data/tracks/`. That dir (`public/data/`) is **gitignored**, so it's absent in fresh worktrees.
 
