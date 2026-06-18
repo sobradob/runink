@@ -25,13 +25,31 @@ function loadImage(blob: Blob): Promise<HTMLImageElement> {
   });
 }
 
-export async function applyWatermark(blob: Blob): Promise<Blob> {
+/** Encoding for the watermarked output. Digital exports use JPEG (q0.9) — far
+ *  smaller and faster to load/share than PNG for a photographic map poster, and
+ *  the single chokepoint every free-export render path flows through. Defaults
+ *  to PNG so existing callers are unaffected. */
+export interface WatermarkFormat {
+  type?: 'image/png' | 'image/jpeg' | 'image/webp';
+  /** 0–1, applies to lossy types only. */
+  quality?: number;
+}
+
+export async function applyWatermark(blob: Blob, format: WatermarkFormat = {}): Promise<Blob> {
+  const type = format.type ?? 'image/png';
   const img = await loadImage(blob);
   const canvas = document.createElement('canvas');
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) return blob;
+  // JPEG has no alpha — composite onto an opaque base so any transparent edge
+  // becomes white rather than black. Posters are opaque, but this is cheap
+  // insurance against a stray transparent pixel from the source render.
+  if (type === 'image/jpeg') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   ctx.drawImage(img, 0, 0);
 
   const base = Math.min(canvas.width, canvas.height);
@@ -71,7 +89,7 @@ export async function applyWatermark(blob: Blob): Promise<Blob> {
   ctx.fillText(CORNER_TEXT, canvas.width - pad, canvas.height - pad);
 
   const result = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/png'),
+    canvas.toBlob(resolve, type, format.quality),
   );
   return result ?? blob;
 }

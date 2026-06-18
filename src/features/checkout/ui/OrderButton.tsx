@@ -44,10 +44,18 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
   // stops caring — the order's png_url will still be set when it finishes.
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // Print tier to fall back to when the canvas is on a digital-only size (the
+  // Instagram default). Keeps "Order Print" one-tap instead of dead-ending the
+  // paid funnel; the order render reframes the map to this print aspect. See
+  // BOA-120.
+  const DEFAULT_PRINT_TIER = 'a4-poster';
   const dimensions: PosterDimensions | undefined = posterConfig?.dimensions;
-  const baseTierId = dimensions?.tierId;
-  const isPrintable = dimensions?.category === 'printable' && !!baseTierId;
-  const framedTierId = baseTierId ? FRAMED_TIER[baseTierId] : undefined;
+  const onPrintableSize = dimensions?.category === 'printable' && !!dimensions?.tierId;
+  const baseTierId = onPrintableSize ? dimensions!.tierId! : DEFAULT_PRINT_TIER;
+  // Short size label for the order confirmation — the canvas label when the
+  // user is already on a print size, otherwise the auto-selected print size.
+  const printSizeLabel = onPrintableSize ? dimensions!.label : '30x40cm';
+  const framedTierId = FRAMED_TIER[baseTierId];
   const canFrame = !!framedTierId;
 
   const activeTierId = framed && framedTierId ? framedTierId : baseTierId;
@@ -148,23 +156,6 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
     }
   };
 
-  // Non-printable size — show message
-  if (!isPrintable) {
-    return (
-      <div className="text-center space-y-1.5">
-        <button
-          disabled
-          className="w-full py-3 rounded-lg bg-white/5 border border-white/10 text-white/30 font-medium text-sm tracking-wider uppercase cursor-not-allowed"
-        >
-          Order Print
-        </button>
-        <p className="text-[10px] text-white/30">
-          This size is digital-only. Switch to a printable size to order a print.
-        </p>
-      </div>
-    );
-  }
-
   if (!open) {
     return (
       <>
@@ -193,8 +184,13 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
     <div className="space-y-2">
       {/* Size confirmation */}
       <div className="text-xs text-white/40 mb-1">
-        {dimensions?.label} matte poster
+        {printSizeLabel} matte poster
       </div>
+      {!onPrintableSize && (
+        <p className="text-[10px] text-white/30 -mt-0.5 mb-1">
+          Printed at {printSizeLabel} — your layout is reframed to print proportions.
+        </p>
+      )}
 
       {/* Framing toggle (if available for this size) */}
       {canFrame && (

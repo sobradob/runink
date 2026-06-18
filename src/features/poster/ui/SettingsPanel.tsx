@@ -53,7 +53,7 @@ export function SettingsActions({
         disabled={exporting}
         className="w-full py-3 rounded-lg bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 disabled:opacity-50 transition-all"
       >
-        {exporting ? 'Exporting...' : 'Export PNG (Free)'}
+        {exporting ? 'Exporting...' : 'Export Image (Free)'}
       </button>
       {orderButtonSlot}
       <div className="text-xs text-white/30 text-center mt-1">
