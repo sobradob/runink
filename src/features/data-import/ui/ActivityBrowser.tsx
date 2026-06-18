@@ -3,6 +3,7 @@ import type { ActivitySummary } from '@/types/activity';
 import type { OutputMode } from '@/features/onboarding/services/outputMode';
 import { filterActivities, getUniqueLocations, suggestRegions, geocodePlace } from '../services/garminLoader';
 import type { RegionFilter } from '../services/garminLoader';
+import { useCityClusters } from '../hooks/useCityClusters';
 import { rankHeroRuns, isRace, DISTANCE_BANDS, matchesDistanceBand } from '../services/heroRuns';
 import { formatDistance, formatPace, formatDate } from '@/shared/utils/format';
 import { boundsFromActivities, distanceKm } from '@/shared/geo/bounds';
@@ -53,12 +54,20 @@ export function ActivityBrowser({
   // Distance band filter (single only)
   const [distanceBand, setDistanceBand] = useState<string | null>(null);
 
+  // City quick-filter (both modes): auto-detected from start coordinates so it
+  // works even when activities have no named location (the common Strava case).
+  const { clusters: cityClusters, cityByActivityId } = useCityClusters(activities);
+  const [selectedCity, setSelectedCity] = useState('');
+  // Derive the effective city so a recompute that drops the selected city (e.g.
+  // label shift) cleanly falls back to "all" without a state-clearing effect.
+  const activeCity = selectedCity && cityClusters.some((c) => c.city === selectedCity) ? selectedCity : '';
+
   // Composite: runs are auto-included; tapping a run excludes it (refinement).
   const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
 
   // Collapsible filters on mobile
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const hasActiveFilters = !!(location || region || dateFrom || dateTo || distanceBand);
+  const hasActiveFilters = !!(location || region || dateFrom || dateTo || distanceBand || selectedCity);
 
   const [dispersionWarn, setDispersionWarn] = useState(false);
   const filtersSectionRef = useRef<HTMLDivElement>(null);
@@ -102,8 +111,9 @@ export function ActivityBrowser({
           return (a.sportType || 'Run') === sportTypeFilter;
         })
         .filter((a) => (isComposite ? true : matchesDistanceBand(a, distanceBand)))
+        .filter((a) => !activeCity || cityByActivityId[a.id] === activeCity)
         .sort((a, b) => b.timestamp - a.timestamp),
-    [activities, search, location, region, radiusKm, dateFrom, dateTo, filterMode, sportTypeFilter, distanceBand, isComposite]
+    [activities, search, location, region, radiusKm, dateFrom, dateTo, filterMode, sportTypeFilter, distanceBand, isComposite, activeCity, cityByActivityId]
   );
 
   // Single mode: a handful of poster-worthy runs surfaced above the list.
@@ -217,6 +227,26 @@ export function ActivityBrowser({
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {/* City quick filters — auto-detected from start coordinates so the
+            "show me everything in this city" intent is one tap, no Place & date. */}
+        {cityClusters.length >= 2 && (
+          <div className="flex flex-wrap gap-1.5">
+            {cityClusters.slice(0, 8).map((c) => (
+              <button
+                key={c.city}
+                onClick={() => setSelectedCity((prev) => (prev === c.city ? '' : c.city))}
+                className={`text-xs px-2.5 py-1.5 md:py-1 rounded-full border transition-colors ${
+                  activeCity === c.city
+                    ? 'border-white/40 bg-white/15 text-white'
+                    : 'border-white/10 text-white/40 hover:text-white/60 hover:border-white/20'
+                }`}
+              >
+                {c.city} ({c.count})
+              </button>
+            ))}
           </div>
         )}
 
