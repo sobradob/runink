@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import type { ActivitySummary, TrackData } from '@/types/activity';
 import type { Theme } from '@/types/theme';
 import type { PosterConfig, PosterDimensions, MapMarker, MarkerIcon } from '@/types/poster';
-import { POSTER_PRESETS, DEFAULT_LAYERS } from '@/types/poster';
+import { POSTER_PRESETS, DEFAULT_PRESET, DEFAULT_LAYERS } from '@/types/poster';
 import { PRINT_DIMENSIONS } from '@/features/checkout/ui/tiers';
 
 /** Map a gift tier ID to the matching POSTER_PRESETS entry */
@@ -41,6 +41,25 @@ const USE_CAPTURE_RENDERER = true;
  *  smoke tests have always proven (renders in 2-7 s) and is plenty for a
  *  shared image. Paid prints keep full DPI via the order route. */
 const FREE_EXPORT_MAX_DPI = 150;
+
+/** Free/digital exports encode as JPEG — far smaller and faster to load and
+ *  share than PNG for a photographic map poster (a ~1080×1350 JPEG is a few
+ *  hundred KB vs several MB as PNG). Paid prints stay PNG (rendered clean on
+ *  the server, never watermarked). q0.9 is visually lossless for this content. */
+const DIGITAL_EXPORT_FORMAT = { type: 'image/jpeg', quality: 0.9 } as const;
+const DIGITAL_EXPORT_EXT = 'jpg';
+
+/** First export of this page-load — the one most likely to hit a cold render
+ *  path (Chromium/tiles/fonts fetched fresh). Module-level so it spans editor
+ *  re-mounts within a session but resets on a full reload. Sent with
+ *  export_completed so cold-vs-warm latency is measurable in Mixpanel. */
+let sessionHasExported = false;
+
+/** mm → device pixels at a given DPI. Mirrors the server renderer's formula;
+ *  used only to label the output size on the export_completed event. */
+function mmToPx(mm: number, dpi: number): number {
+  return Math.round((mm / 25.4) * dpi);
+}
 
 /** When true (set VITE_RENDER_ON_SERVER=true), paid-print orders use the
  *  server-side Playwright renderer instead of rendering in the browser.
@@ -154,8 +173,8 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     dimensions: giftContext
       ? presetForTier(giftContext.tier)
       : (carryover
-          ? (POSTER_PRESETS.find((p) => p.label === carryover.dimensionsLabel) ?? POSTER_PRESETS[0])
-          : POSTER_PRESETS[0]),
+          ? (POSTER_PRESETS.find((p) => p.label === carryover.dimensionsLabel) ?? DEFAULT_PRESET)
+          : DEFAULT_PRESET),
     // Title is per-poster content, not carried style — always compute the
     // default from this poster's own runs (a restored draft keeps its own
     // title via restored.config above). See PosterStyleCarryover.
@@ -214,6 +233,15 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   // different activity set, so this fires once per poster being edited.
   useEffect(() => {
     window.mixpanel?.track('editor_opened', { mode, theme_id: config.themeId });
+
+    // Prewarm the server render path the moment the user reaches the editor,
+    // so the first export doesn't pay the cold-start penalty (Chromium launch /
+    // a scaled-to-zero container waking up). Fire-and-forget — /health runs a
+    // tiny Chromium check that warms the browser pool; failures are harmless
+    // (the export paths fall back client-side anyway). See BOA-120.
+    if (RENDER_ON_SERVER) {
+      fetch('/api/render/health', { method: 'GET' }).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -410,7 +438,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
           dpi: dims.dpi,
         });
         lastRenderPathRef.current = 'server';
-        return await applyWatermark(blob);
+        return await applyWatermark(blob, DIGITAL_EXPORT_FORMAT);
       } catch (e) {
         // Server unreachable, busy, or rate-limited — client paths below
         // still produce a usable (preview-resolution) export. Breadcrumb to
@@ -431,7 +459,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
           dimensions: config.dimensions,
         });
         lastRenderPathRef.current = 'capture';
-        return await applyWatermark(blob);
+        return await applyWatermark(blob, DIGITAL_EXPORT_FORMAT);
       } catch (e) {
         if (e instanceof Error && e.message === 'MAP_BLANK') {
           console.warn('[render] Capture renderer detected blank map, using canvas fallback');
@@ -442,7 +470,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     }
     // Last resort: legacy canvas renderer
     lastRenderPathRef.current = 'canvas';
-    return applyWatermark(await renderPosterToBlob(buildRenderOptions()));
+    return applyWatermark(await renderPosterToBlob(buildRenderOptions()), DIGITAL_EXPORT_FORMAT);
   }, [buildRenderOptions, buildServerPayload, config.dimensions]);
 
   /** Render + upload for the paid-order flow. Dispatches to either the
@@ -480,18 +508,31 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     window.mixpanel?.track('export_clicked', { mode, theme_id: config.themeId });
     setExporting(true);
 
+    const isFirstExport = !sessionHasExported;
+    const startedAt = performance.now();
     try {
       // Collapse mobile sheet so the map is fully visible for capture
       collapseSheetRef.current?.();
       await new Promise((r) => setTimeout(r, 350));
 
       const blob = await renderPoster();
-      const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.png`;
+      const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.${DIGITAL_EXPORT_EXT}`;
       downloadBlob(blob, filename);
+      sessionHasExported = true;
+      // render_ms is the full client-perceived export time (incl. the 350 ms
+      // sheet-collapse wait + any server round trip). first_export flags the
+      // render most likely to hit a cold path, so cold-vs-warm latency by size
+      // is queryable in Mixpanel rather than guessed. See BOA-120.
       window.mixpanel?.track('export_completed', {
         mode,
         theme_id: config.themeId,
         render_path: lastRenderPathRef.current,
+        size: config.dimensions.label,
+        output_px: `${mmToPx(config.dimensions.widthMm, Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI))}x${mmToPx(config.dimensions.heightMm, Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI))}`,
+        format: DIGITAL_EXPORT_FORMAT.type,
+        render_ms: Math.round(performance.now() - startedAt),
+        first_export: isFirstExport,
+        file_bytes: blob.size,
       });
     } catch (err) {
       console.error('Export failed:', err);

@@ -24,9 +24,22 @@ export const POSTER_PRESETS: PosterDimensions[] = [
   { label: '60x40cm', widthMm: 600, heightMm: 400, dpi: 300, category: 'digital-only' },
   // Square (digital export only — Gelato product deactivated)
   { label: 'Square 40cm', widthMm: 400, heightMm: 400, dpi: 300, category: 'digital-only' },
-  // Digital only
-  { label: 'Instagram', widthMm: 108, heightMm: 108, dpi: 300, category: 'digital-only' },
+  // Digital only — Instagram portrait (4:5). Rendered at 150 DPI so the export
+  // lands at ~1081×1352 px, Instagram's native portrait size and an order of
+  // magnitude fewer pixels than the 300-DPI print spec — fast to render and
+  // cheap to share. This is the default a fresh editor opens on (see
+  // DEFAULT_PRESET); print sizes stay one tap away in the Size panel.
+  { label: 'Instagram', widthMm: 183, heightMm: 229, dpi: 150, category: 'digital-only' },
 ];
+
+/**
+ * Size a fresh editor session defaults to. The free export is the common first
+ * action — especially for a new user deciding whether the product is worth it —
+ * so we default to the cheap Instagram portrait rather than the full print spec.
+ * Print sizes remain selectable; ordering auto-selects a print tier (OrderButton).
+ */
+export const DEFAULT_PRESET: PosterDimensions =
+  POSTER_PRESETS.find((p) => p.label === 'Instagram') ?? POSTER_PRESETS[0];
 
 export interface PosterConfig {
   mode: PosterMode;
