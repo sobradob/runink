@@ -1,30 +1,17 @@
 import type { Theme } from '@/types/theme';
 import type { StyleSpecification } from 'maplibre-gl';
 
-// Cache the resolved tile URL from the TileJSON endpoint
-let resolvedTileUrl: string | null = null;
-
-async function resolveTileUrl(): Promise<string> {
-  if (resolvedTileUrl) return resolvedTileUrl;
-  try {
-    const res = await fetch('https://tiles.openfreemap.org/planet');
-    const json = await res.json();
-    resolvedTileUrl = json.tiles[0];
-  } catch {
-    // Fallback to direct pattern
-    resolvedTileUrl = 'https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf';
-  }
-  return resolvedTileUrl!;
-}
-
-// Pre-resolve on module load
-resolveTileUrl();
+// TileJSON endpoint — MapLibre fetches this itself and resolves the current
+// versioned tile template (e.g. .../planet/<date>_pt/{z}/{x}/{y}.pbf) plus
+// min/max zoom. We deliberately do NOT hand-resolve the tile URL: the bare
+// .../planet/{z}/{x}/{y}.pbf pattern responds 200 with an EMPTY body at real
+// zooms, so any code path that reached for it (e.g. before an async resolve
+// settled) rendered a blank basemap — only the route line on the background.
+// Letting MapLibre own the TileJSON keeps preview and server export identical.
+const TILEJSON_URL = 'https://tiles.openfreemap.org/planet';
 
 export function buildMapStyle(theme: Theme): StyleSpecification {
   const c = theme.colors;
-
-  // Use resolved URL or fallback
-  const tileUrl = resolvedTileUrl || 'https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf';
 
   return {
     version: 8,
@@ -32,8 +19,7 @@ export function buildMapStyle(theme: Theme): StyleSpecification {
     sources: {
       openmaptiles: {
         type: 'vector',
-        tiles: [tileUrl],
-        maxzoom: 14,
+        url: TILEJSON_URL,
       },
     },
     glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',

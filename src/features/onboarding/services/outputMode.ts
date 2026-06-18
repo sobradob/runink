@@ -40,18 +40,17 @@ export function saveOutputMode(mode: OutputMode): void {
 
 /**
  * Cross-mode poster styling that survives a Switch. Deliberately the *style*
- * axis only — theme, layers, size, orientation, display toggles, and the
- * title (a place name is meaningful in either mode). Mode-specific content
- * (the date subtitle, km markers, the selected run set) is intentionally NOT
- * carried, so switching keeps "everything possible" without bleeding a single
- * run's specifics onto a composite or vice-versa.
+ * axis only — theme, layers, size, orientation, display toggles. Per-poster
+ * content (the title, the date subtitle, km markers, the selected run set) is
+ * intentionally NOT carried: a title is specific to one poster's runs (e.g. a
+ * race result), so carrying it leaked stale copy onto every later poster. Each
+ * new poster computes its own title default from its own content instead.
  */
 export interface PosterStyleCarryover {
   themeId: string;
   layers: LayerVisibility;
   /** Resolved back to a POSTER_PRESETS entry by label on apply. */
   dimensionsLabel: string;
-  title: string;
   showStats: boolean;
   showCoordinates: boolean;
   showGradientFade: boolean;

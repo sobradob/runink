@@ -156,9 +156,12 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       : (carryover
           ? (POSTER_PRESETS.find((p) => p.label === carryover.dimensionsLabel) ?? POSTER_PRESETS[0])
           : POSTER_PRESETS[0]),
-    title: carryover?.title ?? (mode === 'individual'
+    // Title is per-poster content, not carried style — always compute the
+    // default from this poster's own runs (a restored draft keeps its own
+    // title via restored.config above). See PosterStyleCarryover.
+    title: mode === 'individual'
       ? (activity?.location || activity?.name || '')
-      : (activities?.[0]?.location || '')),
+      : (activities?.[0]?.location || ''),
     subtitle: mode === 'individual'
       ? formatDate(activity?.date ?? '')
       : '',
@@ -200,13 +203,12 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       themeId: theme.id,
       layers: config.layers,
       dimensionsLabel: config.dimensions.label,
-      title: config.title,
       showStats: config.showStats,
       showCoordinates: config.showCoordinates,
       showGradientFade: config.showGradientFade,
       bearing: config.bearing,
     });
-  }, [theme.id, config.layers, config.dimensions.label, config.title, config.showStats, config.showCoordinates, config.showGradientFade, config.bearing]);
+  }, [theme.id, config.layers, config.dimensions.label, config.showStats, config.showCoordinates, config.showGradientFade, config.bearing]);
 
   // One per editor session — the component re-mounts when the user picks a
   // different activity set, so this fires once per poster being edited.
