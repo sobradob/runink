@@ -17,8 +17,6 @@ export function OrderButton({ posterConfig, buildServerPayload }: OrderButtonPro
   const [showComingSoon, setShowComingSoon] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
-
   const DEFAULT_PRINT_TIER = 'a4-poster';
   const dimensions = posterConfig.dimensions;
   const onPrintableSize = dimensions?.category === 'printable' && !!dimensions?.tierId;
