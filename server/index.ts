@@ -11,6 +11,7 @@ import { ordersRouter } from './routes/orders.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import { adminRouter } from './routes/admin.js';
 import { renderRouter } from './routes/render.js';
+import { exportAsyncRouter } from './routes/export-async.js';
 import { initDb } from './lib/db.js';
 import { LOCAL_DIR } from './lib/storage.js';
 import { closeBrowser, verifyChromium } from './lib/poster-renderer.js';
@@ -49,6 +50,8 @@ app.use('/api/gift', giftRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/render', renderRouter);
+app.use('/api/export', express.json({ limit: '8mb' }));
+app.use('/api/export', exportAsyncRouter);
 
 // Serve locally uploaded files (dev fallback)
 app.use('/uploads', express.static(LOCAL_DIR));

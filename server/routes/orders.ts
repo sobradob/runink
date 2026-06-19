@@ -5,6 +5,7 @@ import { createOrderCheckoutSession, getTier } from '../lib/stripe.js';
 import { createPrintOrder, getShippingEstimate } from '../lib/gelato.js';
 import { getUploadUrl, getPublicUrl, storeLocal, getLocalPath } from '../lib/storage.js';
 import { sendShippingConfirmation, sendGiftOrderConfirmation } from '../lib/email.js';
+import { renderOrderPosterAsync } from '../lib/async-render.js';
 import express from 'express';
 import fs from 'fs';
 
@@ -105,6 +106,13 @@ ordersRouter.post('/from-gift', async (req, res) => {
         tierName: tier?.name || gift.tier,
         orderUrl: `${baseUrl}/order/${order.order_id}/success`,
       }).catch(err => console.error('[orders] Gift order confirmation email error:', err));
+    }
+
+    // Kick off async render for the gift order (no Stripe webhook to trigger it)
+    if (order.poster_config) {
+      const port = process.env.PORT || process.env.SERVER_PORT || '8080';
+      renderOrderPosterAsync(order, `http://localhost:${port}`)
+        .catch(err => console.error('[orders] Gift async render failed:', err));
     }
 
     res.json({ orderId: order.order_id });
@@ -216,9 +224,19 @@ ordersRouter.post('/:id/ship', shipLimiter, async (req, res) => {
     shipping_zip: zip,
   });
 
-  // Get the poster PNG URL — must be an absolute URL that Gelato can access
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  const pngUrl = order.png_url || getPublicUrl(`posters/${order.order_id}.png`, baseUrl);
+  // Get the poster PNG URL — must be an absolute URL that Gelato can access.
+  // With the pay-first flow (BOA-125), the async render may still be running
+  // when the user submits shipping. If png_url is missing, re-check the order
+  // (the render may have finished between the first read and now).
+  let pngUrl = order.png_url;
+  if (!pngUrl) {
+    const refreshed = await getOrder(order.order_id);
+    pngUrl = refreshed?.png_url ?? null;
+  }
+  if (!pngUrl) {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    pngUrl = getPublicUrl(`orders/${order.order_id}/poster.png`, baseUrl);
+  }
 
   // Create Gelato print order
   if (process.env.GELATO_API_KEY) {

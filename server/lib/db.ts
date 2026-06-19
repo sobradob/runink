@@ -52,6 +52,28 @@ export async function initDb() {
   await sql`CREATE INDEX IF NOT EXISTS idx_orders_order_id ON orders(order_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_orders_gift_code ON orders(gift_code)`;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS exports (
+      id SERIAL PRIMARY KEY,
+      export_id TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL,
+      poster_config TEXT,
+      png_url TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      verify_token TEXT,
+      marketing_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      rendered_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days'
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_exports_export_id ON exports(export_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_exports_verify_token ON exports(verify_token) WHERE verify_token IS NOT NULL`;
+
+  // Backfill columns for existing tables
+  await sql`ALTER TABLE exports ADD COLUMN IF NOT EXISTS verify_token TEXT`.catch(() => {});
+  await sql`ALTER TABLE exports ADD COLUMN IF NOT EXISTS marketing_opt_in BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {});
+
   console.log('[db] Tables initialized');
 }
 
@@ -195,6 +217,67 @@ export async function updateOrder(orderId: string, updates: Partial<{
     WHERE order_id = ${orderId}
   `;
 
+  return result.count > 0;
+}
+
+// === Exports (HD email delivery) ===
+
+export interface Export {
+  export_id: string;
+  email: string;
+  poster_config: string | null;
+  png_url: string | null;
+  status: string;
+  verify_token: string | null;
+  marketing_opt_in: boolean;
+  created_at: string;
+  rendered_at: string | null;
+  expires_at: string;
+}
+
+function generateExportId(): string {
+  return 'EXP-' + crypto.randomUUID().slice(0, 8).toUpperCase();
+}
+
+export async function createExport(params: {
+  email: string;
+  posterConfig: string;
+  verifyToken: string;
+  marketingOptIn?: boolean;
+}): Promise<Export> {
+  const exportId = generateExportId();
+  await sql`
+    INSERT INTO exports (export_id, email, poster_config, verify_token, marketing_opt_in)
+    VALUES (${exportId}, ${params.email}, ${params.posterConfig}, ${params.verifyToken}, ${params.marketingOptIn ?? false})
+  `;
+  return (await getExport(exportId))!;
+}
+
+export async function getExportByToken(token: string): Promise<Export | null> {
+  const rows = await sql<Export[]>`SELECT * FROM exports WHERE verify_token = ${token}`;
+  return rows[0] || null;
+}
+
+export async function getExport(exportId: string): Promise<Export | null> {
+  const rows = await sql<Export[]>`SELECT * FROM exports WHERE export_id = ${exportId}`;
+  return rows[0] || null;
+}
+
+export async function updateExport(exportId: string, updates: Partial<{
+  png_url: string;
+  status: string;
+  rendered_at: string;
+}>): Promise<boolean> {
+  const fields = Object.entries(updates).filter(([_, v]) => v !== undefined);
+  if (fields.length === 0) return false;
+  const setObj: Record<string, string | null> = {};
+  for (const [k, v] of fields) {
+    setObj[k] = v as string;
+  }
+  const result = await sql`
+    UPDATE exports SET ${sql(setObj, ...Object.keys(setObj))}
+    WHERE export_id = ${exportId}
+  `;
   return result.count > 0;
 }
 

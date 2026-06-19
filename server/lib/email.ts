@@ -200,6 +200,100 @@ export async function sendShippingConfirmation(params: {
   }
 }
 
+export async function sendExportVerification(params: {
+  to: string;
+  exportId: string;
+  verifyUrl: string;
+}): Promise<boolean> {
+  const client = getClient();
+  if (!client) {
+    console.log(`[email] Would send export verification to ${params.to} (RESEND_API_KEY not set)`);
+    return false;
+  }
+
+  try {
+    const { data, error } = await client.emails.send({
+      from: FROM(),
+      to: params.to,
+      subject: 'Confirm your email to get your HD RunInk poster',
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #1a1a1a;">Your HD Poster is Almost Ready</h1>
+          <p>Click the button below to confirm your email and start rendering your poster at 300 DPI.</p>
+          <p style="margin: 24px 0;">
+            <a href="${params.verifyUrl}" style="display: inline-block; padding: 14px 36px; background: #1a1a1a; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 16px;">
+              Get My HD Poster
+            </a>
+          </p>
+          <p style="color: #666; font-size: 13px;">Or copy this link: <a href="${params.verifyUrl}" style="color: #2563eb;">${params.verifyUrl}</a></p>
+          <p style="color: #999; font-size: 12px; margin-top: 24px;">This link expires in 7 days. If you didn't request this, you can ignore this email.</p>
+          <p style="margin-top: 30px; color: #999; font-size: 12px;">RunInk — Your runs, beautifully printed.</p>
+        </div>
+      `,
+    });
+    if (error) {
+      console.error('[email] Export verification failed:', error);
+      return false;
+    }
+    console.log(`[email] Export verification sent to ${params.to}, id: ${data.id}`);
+    return true;
+  } catch (err) {
+    console.error('[email] Failed to send export verification:', err);
+    return false;
+  }
+}
+
+export async function sendExportReady(params: {
+  to: string;
+  exportId: string;
+  downloadUrl: string;
+}): Promise<boolean> {
+  const client = getClient();
+  if (!client) {
+    console.log(`[email] Would send export-ready to ${params.to} (RESEND_API_KEY not set)`);
+    return false;
+  }
+
+  try {
+    const { data, error } = await client.emails.send({
+      from: FROM(),
+      to: params.to,
+      ...(NOTIFY() && { bcc: NOTIFY() }),
+      subject: 'Your high-definition RunInk poster is ready',
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #1a1a1a;">Your HD Poster is Ready</h1>
+          <p>Your high-definition poster has been rendered at 300 DPI — perfect for printing at home or at a local print shop.</p>
+          <p style="margin: 24px 0;">
+            <a href="${params.downloadUrl}" style="display: inline-block; padding: 12px 32px; background: #1a1a1a; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 500;">
+              Download HD Poster
+            </a>
+          </p>
+          <p style="color: #666; font-size: 14px;">This link expires in 7 days.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
+          <h2 style="color: #1a1a1a; font-size: 18px;">Want it on your wall?</h2>
+          <p style="color: #666;">Get your poster professionally printed on premium matte paper and shipped to your door — from $25.</p>
+          <p style="margin: 16px 0;">
+            <a href="${params.downloadUrl.split('/export/')[0]}/" style="display: inline-block; padding: 10px 24px; background: #fff; color: #1a1a1a; text-decoration: none; border-radius: 8px; font-weight: 500; border: 2px solid #1a1a1a;">
+              Order a Print
+            </a>
+          </p>
+          <p style="margin-top: 30px; color: #999; font-size: 12px;">RunInk — Your runs, beautifully printed.</p>
+        </div>
+      `,
+    });
+    if (error) {
+      console.error('[email] Export-ready email failed:', error);
+      return false;
+    }
+    console.log(`[email] Export-ready sent to ${params.to}, id: ${data.id}`);
+    return true;
+  } catch (err) {
+    console.error('[email] Failed to send export-ready:', err);
+    return false;
+  }
+}
+
 /**
  * Send a purchase notification to the site owner (NOTIFY_EMAIL).
  * This is a separate API call from customer emails so it can't fail alongside them.

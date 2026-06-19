@@ -4,6 +4,7 @@ import { constructWebhookEvent, getTier } from '../lib/stripe.js';
 import { createGiftCode, getGiftCode } from '../lib/db.js';
 import { updateOrder, getOrder } from '../lib/db.js';
 import { sendOrderConfirmation, sendGiftCode, sendOwnerPurchaseNotification } from '../lib/email.js';
+import { renderOrderPosterAsync } from '../lib/async-render.js';
 
 export const webhooksRouter = Router();
 
@@ -108,6 +109,15 @@ webhooksRouter.post(
               tierName,
               amount,
             }).catch(err => console.error('[webhook] Owner notification error:', err));
+
+            // Kick off async 300 DPI render — fire and forget. The poster
+            // config was stored in the order row at creation time; the render
+            // runs in the background and sets png_url when done.
+            if (order?.poster_config) {
+              const port = process.env.PORT || process.env.SERVER_PORT || '8080';
+              renderOrderPosterAsync(order, `http://localhost:${port}`)
+                .catch(err => console.error('[webhook] Async render failed:', err));
+            }
           } catch (err) {
             console.error('[webhook] Order update failed:', err);
           }
