@@ -13,14 +13,18 @@ interface CaptureOptions {
 }
 
 /**
- * True when the canvas holds no usable content: fully transparent, or every
+ * True when the source holds no usable content: fully transparent, or every
  * sampled pixel (nearly) identical. A solid single colour is how a broken
  * WebGL readback manifests — iOS Safari evicts WebGL contexts under memory
- * pressure and toDataURL then returns a VALID but all-black PNG, which the
+ * pressure and toDataURL then returns a VALID but all-blank PNG, which the
  * old `dataUrl === 'data:,'` check waved through. A real rendered map always
  * has contrast (route line vs background), even with all layers toggled off.
+ *
+ * Accepts a live canvas OR a decoded snapshot <img>: the two can disagree on
+ * iOS (the canvas samples fine, yet its toDataURL frame is blank), so we
+ * check both — see capturePosterToBlob.
  */
-function isCanvasBlank(source: HTMLCanvasElement): boolean {
+function isSourceBlank(source: CanvasImageSource): boolean {
   const SAMPLE = 48;
   const probe = document.createElement('canvas');
   probe.width = SAMPLE;
@@ -46,6 +50,17 @@ function isCanvasBlank(source: HTMLCanvasElement): boolean {
   } catch {
     return false; // sampling failed — don't block the export on the probe
   }
+}
+
+/** Decode a data URL into an <img> so we can inspect the bytes that actually
+ *  got serialised (not the live WebGL canvas). Rejects if decoding fails. */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('snapshot decode failed'));
+    img.src = src;
+  });
 }
 
 /**
@@ -125,7 +140,7 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
   // MapLibre may have cleared the WebGL buffer — causing a blank map in the export.
   const mapCanvas = map.getCanvas();
 
-  if (isCanvasBlank(mapCanvas)) {
+  if (isSourceBlank(mapCanvas)) {
     console.warn('[capture] Map canvas reads as uniform/blank — falling back');
     throw new Error('MAP_BLANK');
   }
@@ -137,10 +152,22 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
     throw new Error('MAP_BLANK');
   }
 
-  // Swap the live WebGL canvas with a static image so html-to-image
-  // serializes a stable bitmap instead of a volatile WebGL context.
-  const img = document.createElement('img');
-  img.src = dataUrl;
+  // Re-check the SERIALISED snapshot, not just the live canvas. On iOS the
+  // live WebGL canvas can sample fine above yet toDataURL() returns a blank
+  // frame (the drawing buffer is evicted under memory pressure despite
+  // preserveDrawingBuffer) — that produced exported posters with no map,
+  // only the HTML overlays. Decoding the snapshot and re-running the
+  // uniform-pixel test catches it so the caller can fall back to the
+  // device-independent server render.
+  const img = await loadImage(dataUrl);
+  if (isSourceBlank(img)) {
+    console.warn('[capture] Serialised map snapshot is blank — falling back');
+    throw new Error('MAP_BLANK');
+  }
+
+  // Swap the live WebGL canvas with the (validated) static image so
+  // html-to-image serializes a stable bitmap instead of a volatile WebGL
+  // context.
   // Match the CSS dimensions of the canvas (not pixel dimensions — pixelRatio handles upscaling)
   img.style.width = mapCanvas.style.width || `${mapCanvas.clientWidth}px`;
   img.style.height = mapCanvas.style.height || `${mapCanvas.clientHeight}px`;
