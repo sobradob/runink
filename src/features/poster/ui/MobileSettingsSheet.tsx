@@ -1,10 +1,8 @@
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { collapsedSheetHeight } from './mobileSheetMetrics';
 
 type SheetSnap = 'collapsed' | 'half' | 'full';
 
-const COLLAPSED_HEIGHT = 165; // px — fits drag handle + Customize button + Export + Order buttons
-const THEME_STRIP_HEIGHT = 64; // px — extra collapsed height when a theme strip is present
-const STEPS_RAIL_HEIGHT = 44; // px — extra collapsed height when a guided-step rail is present
 const DRAG_THRESHOLD = 40;
 
 interface MobileSettingsSheetProps {
@@ -121,9 +119,7 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, steps
   };
 
   // Compute the CSS height, applying drag offset
-  const collapsedHeight = COLLAPSED_HEIGHT
-    + (themeStrip ? THEME_STRIP_HEIGHT : 0)
-    + (stepsRail ? STEPS_RAIL_HEIGHT : 0);
+  const collapsedHeight = collapsedSheetHeight({ themeStrip: !!themeStrip, stepsRail: !!stepsRail });
   const baseHeight = snapToHeight(snap, collapsedHeight);
   const heightStyle = isDragging && dragDelta !== 0
     ? `calc(${baseHeight} - ${dragDelta}px)`

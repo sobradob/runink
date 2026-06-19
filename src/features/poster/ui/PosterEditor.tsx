@@ -24,6 +24,7 @@ import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
 import { SettingsPanel, SettingsActions, type SettingsPanelControl } from './SettingsPanel';
 import { MobileSettingsSheet } from './MobileSettingsSheet';
+import { collapsedSheetHeight } from './mobileSheetMetrics';
 import { EditorSteps, type EditorStep } from './EditorSteps';
 import { loadPosterStyle, savePosterStyle } from '@/features/onboarding/services/outputMode';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
@@ -579,6 +580,12 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
 
   const aspectRatio = config.dimensions.widthMm / config.dimensions.heightMm;
 
+  // BOA-131: the mobile settings sheet is position:fixed, so it floats over the
+  // poster. Reserve its collapsed footprint below the preview (mobile only) so
+  // the full poster — including the bottom title/stats — stays visible while
+  // editing. The mobile sheet always renders both the steps rail and theme strip.
+  const mobileSheetReserve = collapsedSheetHeight({ themeStrip: true, stepsRail: true });
+
   const orderButtonSlot = giftContext ? (
     <GiftOrderButton
       giftCode={giftContext.giftCode}
@@ -662,15 +669,14 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         </div>
 
         {/* Preview area */}
-        <div className="flex-1 flex items-start md:items-center justify-center p-2 md:p-8 overflow-hidden">
+        <div className="flex-1 flex items-center justify-center p-2 md:p-8 overflow-hidden min-h-0">
           <div
             ref={previewContainerRef}
-            className="relative shadow-2xl"
+            className="relative shadow-2xl max-h-full md:max-h-[80vh]"
             style={{
               width: '100%',
               maxWidth: aspectRatio > 1 ? '80vh' : `${60 * aspectRatio}vh`,
               aspectRatio: String(aspectRatio),
-              maxHeight: '80vh',
               // Query container for the StatsOverlay's cqw type sizing, so the
               // preview text scales with the poster width exactly as the export
               // does (the server render page sets the same on [data-poster-root]).
@@ -706,6 +712,14 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
             )}
           </div>
         </div>
+
+        {/* Mobile: reserve the fixed bottom sheet's collapsed footprint so it
+            never overlaps the poster (BOA-131). Desktop uses a sidebar. */}
+        <div
+          aria-hidden
+          className="md:hidden flex-shrink-0"
+          style={{ height: `${mobileSheetReserve}px` }}
+        />
       </div>
 
       {/* Desktop: Settings sidebar */}

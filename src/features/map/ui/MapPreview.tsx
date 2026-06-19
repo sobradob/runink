@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { Theme } from '@/types/theme';
 import type { TrackData } from '@/types/activity';
@@ -35,6 +35,10 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
+  // BOA-130: surface a loading state while basemap tiles fetch so the poster
+  // doesn't look broken/incomplete (route on a flat background) on slow loads.
+  const [tilesLoading, setTilesLoading] = useState(true);
+  const loadFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the actual track IDs to detect real changes vs reference changes
   const trackIdsRef = useRef<string>('');
   // Store HTML markers for cleanup
@@ -109,11 +113,20 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
         setTimeout(() => { map.resize(); map.triggerRepaint(); }, 200);
       });
 
+      // Loading state (BOA-130): show the overlay while tiles are in flight and
+      // hide it once the map settles (idle = all tiles loaded, nothing pending).
+      // This covers the initial load AND the fitBounds to the run's region.
+      map.on('dataloading', () => setTilesLoading(true));
+      map.on('idle', () => setTilesLoading(false));
+      // Safety net: never let the overlay stick if 'idle' is delayed.
+      loadFallbackRef.current = setTimeout(() => setTilesLoading(false), 8000);
+
       (el as any).__ro = ro;
     }, 100);
 
     return () => {
       clearTimeout(timer);
+      if (loadFallbackRef.current) clearTimeout(loadFallbackRef.current);
       readyRef.current = false;
       // Clean up HTML markers
       htmlMarkersRef.current.forEach(m => m.remove());
@@ -218,11 +231,34 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
   }, [markers]);
 
   return (
-    <div
-      ref={containerRef}
-      className={`w-full h-full ${className ?? ''}`}
-      style={{ minHeight: 300 }}
-    />
+    <div className={`relative w-full h-full overflow-hidden ${className ?? ''}`} style={{ minHeight: 300 }}>
+      <div ref={containerRef} className="w-full h-full" />
+
+      {/* BOA-130: loading overlay while basemap tiles fetch. Themed background
+          blends into the map so there's no flash; removed from the DOM once
+          loaded so it never lands in the export capture. */}
+      {tilesLoading && (
+        <div
+          data-export-hide="true"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none"
+          style={{ backgroundColor: theme.colors.background }}
+        >
+          <div
+            className="w-7 h-7 rounded-full animate-spin"
+            style={{
+              border: `2px solid ${theme.colors.text}33`,
+              borderTopColor: theme.runPath.core,
+            }}
+          />
+          <span
+            className="text-xs tracking-wider"
+            style={{ color: `${theme.colors.text}99`, fontFamily: 'var(--font-body)' }}
+          >
+            Loading map…
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 
