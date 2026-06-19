@@ -34,6 +34,12 @@ import { ThemeStrip } from '@/features/theme/ui/ThemeGallery';
 /** Flip to false to fall back to the old Canvas-based renderer */
 const USE_CAPTURE_RENDERER = true;
 
+/** When true, free exports grab the on-screen preview instantly via the capture
+ *  renderer (<1s) instead of blocking on the server render (2-7s+). The server
+ *  render still runs as the fallback when capture fails. Phase 0 of the
+ *  two-tier export plan (BOA-125). */
+const INSTANT_EXPORT = true;
+
 /** Free exports render server-side at this DPI ceiling. Print DPI (300) makes
  *  the render viewport ~16.7M px, which software WebGL on the 1-vCPU box
  *  cannot rasterize inside the 45 s server timeout (2026-06-12: every free
@@ -68,11 +74,10 @@ function mmToPx(mm: number, dpi: number): number {
 const RENDER_ON_SERVER = import.meta.env.VITE_RENDER_ON_SERVER === 'true';
 import { OrderButton } from '@/features/checkout/ui/OrderButton';
 import { GiftOrderButton } from '@/features/checkout/ui/GiftOrderButton';
+import { ExportSuccessModal } from './ExportSuccessModal';
 import {
-  getUploadUrl,
   renderExportOnServer,
-  renderPosterOnServer,
-  uploadPosterPng,
+  requestHdExport,
   type GiftContext,
 } from '@/features/checkout/services/checkoutApi';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
@@ -203,6 +208,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       : (carryover?.themeId ? getThemeById(carryover.themeId) : getDefaultTheme()),
   );
   const [exporting, setExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [showKmMarkers, setShowKmMarkers] = useState<boolean>(restored?.showKmMarkers ?? false);
   const [showStartFinish, setShowStartFinish] = useState<boolean>(restored?.showStartFinish ?? true);
 
@@ -473,35 +479,6 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     return applyWatermark(await renderPosterToBlob(buildRenderOptions()), DIGITAL_EXPORT_FORMAT);
   }, [buildRenderOptions, buildServerPayload, config.dimensions]);
 
-  /** Render + upload for the paid-order flow. Dispatches to either the
-   *  server-side Playwright renderer or the legacy client-render-then-upload
-   *  path based on the VITE_RENDER_ON_SERVER flag. OrderButton and
-   *  GiftOrderButton both call this once per order. */
-  const submitPoster = useCallback(async (
-    orderId: string,
-    printDimensions?: PosterDimensions,
-  ): Promise<void> => {
-    if (RENDER_ON_SERVER) {
-      const dims = printDimensions ?? config.dimensions;
-      await renderPosterOnServer(orderId, buildServerPayload(dims), {
-        widthMm: dims.widthMm,
-        heightMm: dims.heightMm,
-        dpi: dims.dpi,
-        tierId: dims.tierId,
-      });
-      // Order successfully submitted — the user is about to leave for
-      // Stripe and won't be back to this editor for this poster. Clear
-      // the draft so it doesn't shadow the user's NEXT customization.
-      clearDraft(persistenceKey);
-      return;
-    }
-
-    // Legacy client-side flow — render in browser, then upload to R2.
-    const blob = await renderPoster(printDimensions);
-    const { url, method, local } = await getUploadUrl(orderId);
-    await uploadPosterPng(url, method, blob, orderId, local);
-    clearDraft(persistenceKey);
-  }, [buildServerPayload, config.dimensions, renderPoster, persistenceKey]);
 
   const handleExport = useCallback(async () => {
     if (tracks.length === 0) return;
@@ -515,14 +492,33 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       collapseSheetRef.current?.();
       await new Promise((r) => setTimeout(r, 350));
 
-      const blob = await renderPoster();
+      let blob: Blob;
+      // INSTANT_EXPORT (BOA-125 Phase 0): grab the on-screen preview directly
+      // via the capture renderer — typically <1s. Falls back to the full
+      // renderPoster() chain (server → capture → canvas) on failure.
+      if (INSTANT_EXPORT && USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
+        try {
+          const rawBlob = await capturePosterToBlob({
+            element: previewContainerRef.current,
+            map: mapInstanceRef.current,
+            dimensions: config.dimensions,
+          });
+          lastRenderPathRef.current = 'capture';
+          blob = await applyWatermark(rawBlob, DIGITAL_EXPORT_FORMAT);
+        } catch (captureErr) {
+          console.warn('[export] Instant capture failed, falling back to full render:', captureErr);
+          window.mixpanel?.track('instant_export_fallback', {
+            error: captureErr instanceof Error ? captureErr.message : String(captureErr),
+          });
+          blob = await renderPoster();
+        }
+      } else {
+        blob = await renderPoster();
+      }
+
       const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.${DIGITAL_EXPORT_EXT}`;
       downloadBlob(blob, filename);
       sessionHasExported = true;
-      // render_ms is the full client-perceived export time (incl. the 350 ms
-      // sheet-collapse wait + any server round trip). first_export flags the
-      // render most likely to hit a cold path, so cold-vs-warm latency by size
-      // is queryable in Mixpanel rather than guessed. See BOA-120.
       window.mixpanel?.track('export_completed', {
         mode,
         theme_id: config.themeId,
@@ -533,7 +529,12 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         render_ms: Math.round(performance.now() - startedAt),
         first_export: isFirstExport,
         file_bytes: blob.size,
+        instant_export: INSTANT_EXPORT,
       });
+
+      // Show post-export upsell modal
+      setShowExportModal(true);
+      window.mixpanel?.track('export_upsell_shown', { size: config.dimensions.label, theme_id: config.themeId });
     } catch (err) {
       console.error('Export failed:', err);
       window.mixpanel?.track('export_failed', { mode, theme_id: config.themeId });
@@ -548,23 +549,12 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     <GiftOrderButton
       giftCode={giftContext.giftCode}
       tierId={giftContext.tier}
-      posterConfig={{
-        ...config,
-        activityId: activity?.id,
-        activityIds: activities?.map(a => a.id),
-      }}
-      renderPoster={renderPoster}
-      submitPoster={submitPoster}
+      posterConfig={buildServerPayload(config.dimensions)}
     />
   ) : (
     <OrderButton
-      posterConfig={{
-        ...config,
-        activityId: activity?.id,
-        activityIds: activities?.map(a => a.id),
-      }}
-      renderPoster={renderPoster}
-      submitPoster={submitPoster}
+      buildServerPayload={buildServerPayload}
+      posterConfig={config}
     />
   );
 
@@ -715,6 +705,19 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
           <SettingsPanel {...settingsPanelProps} hideActions hideTheme controlRef={settingsControlRef} />
         </MobileSettingsSheet>
       </div>
+
+      {showExportModal && (
+        <ExportSuccessModal
+          onClose={() => setShowExportModal(false)}
+          onOrderPrint={() => {
+            setShowExportModal(false);
+            expandSheetRef.current?.();
+          }}
+          onRequestHd={async (email, marketingOptIn) => {
+            await requestHdExport({ email, payload: buildServerPayload(config.dimensions), marketingOptIn });
+          }}
+        />
+      )}
     </div>
   );
 }

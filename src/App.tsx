@@ -27,6 +27,7 @@ const PrivacyPolicy = lazy(() => import('@/features/legal/PrivacyPolicy').then(m
 const OrderSuccessPage = lazy(() => import('@/features/checkout/ui/OrderSuccessPage').then(m => ({ default: m.OrderSuccessPage })));
 const OrderStatusPage = lazy(() => import('@/features/checkout/ui/OrderStatusPage').then(m => ({ default: m.OrderStatusPage })));
 const InternalRenderPage = lazy(() => import('@/features/poster/render/InternalRenderPage').then(m => ({ default: m.InternalRenderPage })));
+const ExportDownloadPage = lazy(() => import('@/features/checkout/ui/ExportDownloadPage').then(m => ({ default: m.ExportDownloadPage })));
 
 // Minimal fallback for lazy routes. Matches the app's existing loading
 // idiom so it doesn't look out of place during the brief chunk fetch.
@@ -59,7 +60,8 @@ type View =
   | { type: 'gift-success' }
   | { type: 'privacy' }
   | { type: 'order-success'; orderId: string }
-  | { type: 'order-status'; orderId: string };
+  | { type: 'order-status'; orderId: string }
+  | { type: 'export-download'; exportId: string };
 
 function getInitialView(): View {
   const path = window.location.pathname;
@@ -76,6 +78,8 @@ function getInitialView(): View {
     return { type: 'redeem', code };
   }
   if (path === '/gift/success') return { type: 'gift-success' };
+  const exportMatch = path.match(/^\/export\/([^/]+)$/);
+  if (exportMatch) return { type: 'export-download', exportId: exportMatch[1] };
 
   return { type: 'browse' };
 }
@@ -152,6 +156,11 @@ function MainApp({ logoLongPress }: MainAppProps) {
     });
     setView({ type: 'browse' });
   }, []);
+
+  // Export download page (HD email delivery)
+  if (view.type === 'export-download') {
+    return <ExportDownloadPage exportId={view.exportId} />;
+  }
 
   // Privacy policy page
   if (view.type === 'privacy') {

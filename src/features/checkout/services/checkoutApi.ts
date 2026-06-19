@@ -274,6 +274,25 @@ export async function renderExportOnServer(
   return res.blob();
 }
 
+// === HD Export (email delivery) ===
+
+export async function requestHdExport(params: {
+  email: string;
+  payload: unknown;
+  marketingOptIn: boolean;
+}): Promise<{ exportId: string }> {
+  const res = await fetch('/api/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to request HD export' }));
+    throw new Error(err.error);
+  }
+  return res.json();
+}
+
 // === Gift context persistence (cookie + URL param fallback) ===
 
 export interface GiftContext {

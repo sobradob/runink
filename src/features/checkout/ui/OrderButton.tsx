@@ -1,157 +1,62 @@
-import { useEffect, useRef, useState } from 'react';
-import { createDirectOrder, getUploadUrl, uploadPosterPng, RenderError } from '../services/checkoutApi';
+import { useState } from 'react';
+import { createDirectOrder } from '../services/checkoutApi';
 import { FRAMED_TIER, getTier, PRINT_DIMENSIONS } from './tiers';
 import { COMING_SOON, ComingSoonPopup } from './ComingSoon';
-import { RenderProgress } from '@/shared/ui/RenderProgress';
 import { reportError } from '@/shared/diagnostics/errorReporter';
-import type { PosterDimensions } from '@/types/poster';
+import { POSTER_PRESETS, type PosterConfig, type PosterDimensions } from '@/types/poster';
 
 interface OrderButtonProps {
-  posterConfig: any;
-  /** Legacy client-side render path — renders a blob that OrderButton then
-   *  uploads to R2. Still used as the fallback when `submitPoster` is not
-   *  provided. */
-  renderPoster?: (printDimensions?: PosterDimensions) => Promise<Blob>;
-  /** Preferred path (post server-side render migration): a single async
-   *  call that takes ownership of rendering AND uploading. Hides the
-   *  local-vs-server dispatch from this button. When provided, this
-   *  replaces the `renderPoster` → `getUploadUrl` → `uploadPosterPng`
-   *  three-step dance. */
-  submitPoster?: (orderId: string, printDimensions?: PosterDimensions) => Promise<void>;
-  onOrderCreated?: (orderId: string) => void;
+  posterConfig: PosterConfig;
+  buildServerPayload: (dims: PosterDimensions) => unknown;
 }
 
-export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderCreated }: OrderButtonProps) {
+export function OrderButton({ posterConfig, buildServerPayload }: OrderButtonProps) {
   const [open, setOpen] = useState(false);
   const [framed, setFramed] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState('');
   const [showComingSoon, setShowComingSoon] = useState(false);
-
-  // Error surface: a retryable error keeps the order around (orderId stays in
-  // outstandingOrderIdRef) so a retry only re-runs the render+upload step
-  // instead of double-creating the order. Non-retryable errors clear the
-  // outstanding order — the user will start over from scratch.
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const [errRequestId, setErrRequestId] = useState<string | null>(null);
-  const [errRetryable, setErrRetryable] = useState(false);
-  const outstandingOrderIdRef = useRef<string | null>(null);
-  const outstandingCheckoutUrlRef = useRef<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
-  // Cancel any in-flight render request if the component unmounts (user
-  // navigates away mid-submit). The server keeps rendering but the client
-  // stops caring — the order's png_url will still be set when it finishes.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  // Print tier to fall back to when the canvas is on a digital-only size (the
-  // Instagram default). Keeps "Order Print" one-tap instead of dead-ending the
-  // paid funnel; the order render reframes the map to this print aspect. See
-  // BOA-120.
   const DEFAULT_PRINT_TIER = 'a4-poster';
-  const dimensions: PosterDimensions | undefined = posterConfig?.dimensions;
+  const dimensions = posterConfig.dimensions;
   const onPrintableSize = dimensions?.category === 'printable' && !!dimensions?.tierId;
-  const baseTierId = onPrintableSize ? dimensions!.tierId! : DEFAULT_PRINT_TIER;
-  // Short size label for the order confirmation — the canvas label when the
-  // user is already on a print size, otherwise the auto-selected print size.
-  const printSizeLabel = onPrintableSize ? dimensions!.label : '30x40cm';
+  const baseTierId = onPrintableSize ? dimensions.tierId! : DEFAULT_PRINT_TIER;
+  const printSizeLabel = onPrintableSize ? dimensions.label : '30x40cm';
   const framedTierId = FRAMED_TIER[baseTierId];
   const canFrame = !!framedTierId;
 
   const activeTierId = framed && framedTierId ? framedTierId : baseTierId;
   const activeTier = activeTierId ? getTier(activeTierId) : undefined;
 
-  const clearError = () => {
-    setErrMsg(null);
-    setErrRequestId(null);
-    setErrRetryable(false);
-  };
-
+  // BOA-125 Phase 1: pay first, render async. No render step before payment —
+  // the poster config is stored in the order row and the server renders it
+  // after the Stripe webhook confirms payment.
   const handleOrder = async () => {
     if (!activeTierId) return;
     setLoading(true);
-    clearError();
-    abortRef.current = new AbortController();
+    setErrMsg(null);
     try {
-      // Skip createDirectOrder when retrying a render that already produced
-      // an orderId — re-creating would charge the customer's Stripe context
-      // (idempotent on backend but produces duplicate rows here).
-      let orderId = outstandingOrderIdRef.current;
-      let checkoutUrl = outstandingCheckoutUrlRef.current;
-      if (!orderId || !checkoutUrl) {
-        setStatus('Creating order...');
-        const created = await createDirectOrder({
-          tierId: activeTierId,
-          posterConfig,
-        });
-        orderId = created.orderId;
-        checkoutUrl = created.checkoutUrl;
-        outstandingOrderIdRef.current = orderId;
-        outstandingCheckoutUrlRef.current = checkoutUrl;
-        onOrderCreated?.(orderId);
-      }
-
-      const printDims = PRINT_DIMENSIONS[activeTierId];
-      const fullPrintDims: PosterDimensions | undefined = printDims
-        ? { ...printDims, label: activeTierId, category: 'printable', tierId: activeTierId }
-        : undefined;
-
-      if (submitPoster) {
-        // New path: PosterEditor owns render+upload (local or server-side).
-        // Server-side renders typically take 2-7s; the client shows a
-        // "Rendering poster…" state for the whole window.
-        setStatus('Rendering poster...');
-        await submitPoster(orderId, fullPrintDims);
-      } else if (renderPoster) {
-        // Legacy client-side flow — retained as fallback.
-        setStatus('Rendering poster...');
-        const blob = await renderPoster(fullPrintDims);
-
-        setStatus('Uploading artwork...');
-        const { url, method, local } = await getUploadUrl(orderId);
-        await uploadPosterPng(url, method, blob, orderId, local);
-      }
-
-      // Render+upload succeeded — clear the in-flight order so back-button
-      // doesn't accidentally re-enter the retry path.
-      outstandingOrderIdRef.current = null;
-      outstandingCheckoutUrlRef.current = null;
-      window.mixpanel?.track('order_render_completed', {
-        tier_id: activeTierId,
-        theme_id: posterConfig?.themeId,
+      const printDims: PosterDimensions = POSTER_PRESETS.find(p => p.tierId === baseTierId)
+        ?? { label: printSizeLabel, ...PRINT_DIMENSIONS[baseTierId], category: 'printable' as const, tierId: baseTierId };
+      const serverPayload = buildServerPayload(printDims);
+      const created = await createDirectOrder({
+        tierId: activeTierId,
+        posterConfig: serverPayload,
       });
 
-      setStatus('Redirecting to payment...');
       window.mixpanel?.track('checkout_redirected', {
         tier_id: activeTierId,
         theme_id: posterConfig?.themeId,
+        skip_render: true,
       });
-      window.location.href = checkoutUrl;
+      window.location.href = created.checkoutUrl;
     } catch (e: unknown) {
       console.error('Order failed:', e);
-      if (e instanceof RenderError) {
-        // Render error from the server path. Already through 3 attempts —
-        // if `retryable` is still true, the queue was busy the whole time
-        // and a manual retry might catch a window.
-        setErrMsg(e.message || 'Server render failed');
-        setErrRequestId(e.requestId ?? null);
-        setErrRetryable(e.retryable);
-        reportError(e, {
-          source: 'render',
-          requestId: e.requestId,
-          status: e.status,
-          retryable: e.retryable,
-        });
-      } else {
-        const msg = (e as Error)?.message || 'Unknown error';
-        setErrMsg(msg);
-        setErrRequestId(null);
-        // Order-creation errors and legacy client-render errors get a
-        // manual retry button — failing now means we haven't taken payment.
-        setErrRetryable(true);
-        reportError(e, { source: 'order', retryable: true });
-      }
-      setStatus('');
+      const msg = (e as Error)?.message || 'Unknown error';
+      setErrMsg(msg);
+      reportError(e, { source: 'order' });
       setLoading(false);
     }
   };
@@ -225,46 +130,33 @@ export function OrderButton({ posterConfig, renderPoster, submitPoster, onOrderC
         </div>
       )}
 
+      {!onPrintableSize && (
+        <p className="text-[10px] text-white/30 -mt-0.5 mb-1">
+          Your poster will be printed in high definition (300 DPI).
+        </p>
+      )}
+
       <button
         onClick={handleOrder}
         disabled={loading}
         className="w-full py-3 rounded-lg bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 disabled:opacity-50 transition-all"
       >
-        {loading
-          ? status || 'Processing...'
-          : errMsg && errRetryable
-            ? 'Retry'
-            : 'Proceed to Payment'}
+        {loading ? 'Redirecting to payment...' : 'Proceed to Payment'}
       </button>
-
-      <RenderProgress active={loading && status === 'Rendering poster...'} />
 
       {errMsg && (
         <div
           role="alert"
           className="text-[11px] text-red-300/80 bg-red-900/15 border border-red-500/20 rounded-md px-3 py-2 leading-snug"
         >
-          <div className="font-medium text-red-300">
-            {errRetryable ? 'Hit a snag — tap retry above.' : 'Order failed.'}
-          </div>
+          <div className="font-medium text-red-300">Something went wrong.</div>
           <div className="text-red-200/60 mt-0.5">{errMsg}</div>
-          {errRequestId && (
-            <div className="text-red-200/40 mt-1 font-mono text-[10px] tracking-tight">
-              Ref: {errRequestId}
-            </div>
-          )}
         </div>
       )}
 
       <button
         onClick={() => {
-          abortRef.current?.abort();
-          // If we never reached render successfully, drop the outstanding
-          // order — it'll be garbage-collected on the server when the
-          // Stripe session expires.
-          outstandingOrderIdRef.current = null;
-          outstandingCheckoutUrlRef.current = null;
-          clearError();
+          setErrMsg(null);
           setOpen(false);
           setFramed(false);
         }}
