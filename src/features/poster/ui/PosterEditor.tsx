@@ -109,10 +109,21 @@ function generateKmMarkers(track: TrackData): MapMarker[] {
   if (track.coords.length < 2) return markers;
 
   const [startLng, startLat] = track.coords[0];
-  markers.push({ id: 'start', lat: startLat, lng: startLng, label: 'Start', type: 'start' });
-
   const [endLng, endLat] = track.coords[track.coords.length - 1];
-  markers.push({ id: 'finish', lat: endLat, lng: endLng, label: 'Finish', type: 'finish' });
+
+  // Loop runs start and finish at ~the same point. Rendered as two separate
+  // markers the labels overprint into unreadable garbled text (in the preview
+  // HTML markers, the server render, and the legacy canvas symbol layer alike).
+  // Collapse coincident endpoints into one "Start / Finish" marker. 50 m is
+  // comfortably above GPS jitter at a loop's closure yet well below the gap of
+  // any genuine point-to-point route at poster scale.
+  const COINCIDENT_ENDPOINT_M = 50;
+  if (haversineM(startLat, startLng, endLat, endLng) <= COINCIDENT_ENDPOINT_M) {
+    markers.push({ id: 'start-finish', lat: startLat, lng: startLng, label: 'Start / Finish', type: 'start' });
+  } else {
+    markers.push({ id: 'start', lat: startLat, lng: startLng, label: 'Start', type: 'start' });
+    markers.push({ id: 'finish', lat: endLat, lng: endLng, label: 'Finish', type: 'finish' });
+  }
 
   let totalDist = 0;
   let nextKm = 1;
@@ -506,11 +517,34 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
           lastRenderPathRef.current = 'capture';
           blob = await applyWatermark(rawBlob, DIGITAL_EXPORT_FORMAT);
         } catch (captureErr) {
-          console.warn('[export] Instant capture failed, falling back to full render:', captureErr);
+          // Capture threw OR produced a blank map. The latter is the iOS
+          // failure mode (WebGL buffer evicted → blank toDataURL) that shipped
+          // posters with no route/basemap, only HTML overlays. Go straight to
+          // the device-independent server render. We call it directly rather
+          // than via renderPoster()'s `RENDER_ON_SERVER` branch so the fix does
+          // not depend on the VITE_RENDER_ON_SERVER *client build* flag being
+          // set — the server has its own ENABLE_SERVER_RENDER gate and returns
+          // 503 if disabled, in which case we drop to the client chain.
+          console.warn('[export] Instant capture failed/blank, trying server render:', captureErr);
           window.mixpanel?.track('instant_export_fallback', {
             error: captureErr instanceof Error ? captureErr.message : String(captureErr),
           });
-          blob = await renderPoster();
+          try {
+            const dims = {
+              ...config.dimensions,
+              dpi: Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI),
+            };
+            const rawServer = await renderExportOnServer(buildServerPayload(dims), {
+              widthMm: dims.widthMm,
+              heightMm: dims.heightMm,
+              dpi: dims.dpi,
+            });
+            lastRenderPathRef.current = 'server';
+            blob = await applyWatermark(rawServer, DIGITAL_EXPORT_FORMAT);
+          } catch (serverErr) {
+            console.warn('[export] Server render unavailable, using client fallback chain:', serverErr);
+            blob = await renderPoster();
+          }
         }
       } else {
         blob = await renderPoster();
@@ -541,7 +575,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     } finally {
       setExporting(false);
     }
-  }, [tracks, config, mode, activity, renderPoster]);
+  }, [tracks, config, mode, activity, renderPoster, buildServerPayload]);
 
   const aspectRatio = config.dimensions.widthMm / config.dimensions.heightMm;
 
