@@ -41,6 +41,7 @@ app.use(cookieParser());
 // Compilations with many runs can exceed the default 1MB body limit, so
 // this path-scoped parser (registered BEFORE the global one) handles it.
 app.use('/api/render', express.json({ limit: '8mb' }));
+app.use('/api/export', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 
 // Mount API routes
@@ -50,7 +51,6 @@ app.use('/api/gift', giftRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/render', renderRouter);
-app.use('/api/export', express.json({ limit: '8mb' }));
 app.use('/api/export', exportAsyncRouter);
 
 // Serve locally uploaded files (dev fallback)

@@ -6,7 +6,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
-import { getSession } from '../lib/session.js';
 import { createExport, updateExport, getExport, getExportByToken } from '../lib/db.js';
 import { renderPoster, type RenderPayload } from '../lib/poster-renderer.js';
 import { storeBuffer, getPublicUrl } from '../lib/storage.js';
@@ -14,8 +13,6 @@ import { sendExportVerification, sendExportReady } from '../lib/email.js';
 import { log, newRequestId } from '../lib/logger.js';
 
 export const exportAsyncRouter = Router();
-
-const COOKIE_NAME = 'runink_session';
 
 const exportLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -27,11 +24,6 @@ const exportLimiter = rateLimit({
 
 exportAsyncRouter.post('/', exportLimiter, async (req, res) => {
   const requestId = newRequestId();
-
-  const sessionId = req.cookies?.[COOKIE_NAME];
-  if (!sessionId || !getSession(sessionId)) {
-    return res.status(401).json({ error: 'Not connected to Strava', requestId });
-  }
 
   const { email, payload, marketingOptIn } = req.body as {
     email?: string;
