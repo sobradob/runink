@@ -1,0 +1,120 @@
+name: Smoke export (WebKit / mobile)
+
+# Runs the free/preview export end-to-end on Playwright's WebKit — the engine
+# iOS Safari and iOS Chrome both use — at an iPhone viewport, and asserts the
+# OUTPUT ACTUALLY CONTAINS A MAP (decoded pixel contrast), not just that a file
+# downloaded. This is the regression guard for the recurring "blank map on iOS
+# export" bug: a desktop-Chromium test (smoke-render.yml) structurally cannot
+# reproduce iOS WebGL buffer-readback failures, and a byte-size check passes a
+# blank-map-with-overlays export.
+#
+# Two scenarios in scripts/smoke-export-webkit.mjs:
+#   healthy  — capture path must produce a map-bearing image
+#   evicted  — simulated iOS blank readback must be DETECTED and fall back to the
+#              server render, which must STILL produce a map-bearing image.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/features/poster/**'
+      - 'src/features/map/**'
+      - 'server/**'
+      - 'scripts/smoke-export-webkit.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - '.github/workflows/smoke-webkit.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/features/poster/**'
+      - 'src/features/map/**'
+      - 'server/**'
+      - 'scripts/smoke-export-webkit.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - '.github/workflows/smoke-webkit.yml'
+
+jobs:
+  webkit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: smoke
+          POSTGRES_USER: postgres
+          POSTGRES_DB: runink_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      # Render server (port 3008) — mirrors smoke-render.yml's runtime gates.
+      NODE_ENV: test
+      ENABLE_SMOKE_ENDPOINTS: 'true'
+      ENABLE_SERVER_RENDER: 'true'
+      PORT: '3008'
+      DATABASE_URL: postgres://postgres:smoke@localhost:5432/runink_smoke
+      SESSION_SECRET: ci-smoke-secret
+      ADMIN_SECRET: ci-smoke-secret
+      STRAVA_REDIRECT_URI: http://localhost:3008/auth/strava/callback
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Install Playwright browsers
+        # webkit = the engine under test; chromium = used by the server-side
+        # Playwright renderer for the fallback scenario.
+        run: npx playwright install --with-deps webkit chromium
+
+      - name: Start render server (:3008)
+        run: |
+          nohup node --import tsx server/index.ts > render-server.log 2>&1 &
+          echo "Started render server pid $!"
+
+      - name: Start demo app dev server (:5180)
+        run: |
+          # Demo mode loads bundled runs without Strava auth; the dev server
+          # proxies /api -> :3008 (see vite.config.ts) so the in-page export
+          # fetch reaches the render server.
+          VITE_USE_DEMO_DATA=true nohup npx vite --port 5180 --strictPort > vite.log 2>&1 &
+          echo "Started vite pid $!"
+
+      - name: Wait for both servers
+        run: |
+          for i in $(seq 1 45); do
+            ok_render=$(curl -fsS http://localhost:3008/api/render/health 2>/dev/null | grep -c '"ok":true' || true)
+            ok_app=$(curl -fsS http://localhost:5180/ 2>/dev/null | grep -c '<div id="root"' || true)
+            if [ "$ok_render" = "1" ] && [ "$ok_app" = "1" ]; then
+              echo "Both servers ready after ${i} attempts"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Servers never became ready"; echo "--- render-server.log ---"; cat render-server.log || true
+          echo "--- vite.log ---"; cat vite.log || true
+          exit 1
+
+      - name: Run WebKit export smoke
+        run: node scripts/smoke-export-webkit.mjs
+
+      - name: Server logs on failure
+        if: failure()
+        run: |
+          echo "--- render-server.log ---"; cat render-server.log || true
+          echo "--- vite.log ---"; cat vite.log || true
