@@ -30,6 +30,40 @@ const CONTENT_RANGE_MIN = 24; // a real map's per-channel pixel range far exceed
 
 const fail = (m) => { console.error('[smoke-export-webkit] FAIL:', m); process.exit(1); };
 
+// Self-contained demo fixture: a Los Angeles loop. The real demo data
+// (public/data) is gitignored private data, so the test mocks /data/* instead
+// of depending on it — works identically locally and in CI. Matches
+// ActivityIndex / TrackData (coords are [lng, lat], GeoJSON order).
+function makeFixture() {
+  const cx = -118.39, cy = 33.975, r = 0.012;
+  const N = 90;
+  const coords = [];
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    coords.push([cx + r * Math.cos(a) * 1.3, cy + r * Math.sin(a)]);
+  }
+  const lngs = coords.map((c) => c[0]);
+  const lats = coords.map((c) => c[1]);
+  const id = 'smoke-la-1';
+  const activity = {
+    id, name: 'Los Angeles - Base', date: '2026-03-01', timestamp: 1772380957000,
+    distance: 7853, duration: 2568, movingDuration: 2552, avgSpeed: 3.07, avgPace: 5.4,
+    avgHr: 134, maxHr: 154, elevationGain: 92, elevationLoss: 79, calories: 2224,
+    location: 'Los Angeles', sportType: 'running', workoutType: null,
+    startPoint: { lat: coords[0][1], lng: coords[0][0] },
+    endPoint: { lat: coords[N][1], lng: coords[N][0] },
+    bounds: {
+      minLat: Math.min(...lats), maxLat: Math.max(...lats),
+      minLng: Math.min(...lngs), maxLng: Math.max(...lngs),
+    },
+    hasTrack: true, source: 'garmin',
+  };
+  return {
+    index: { generatedAt: '2026-03-01T00:00:00Z', totalActivities: 1, activitiesWithTracks: 1, activities: [activity] },
+    track: { id, coords, elevations: coords.map(() => 50), heartRates: coords.map(() => 134) },
+  };
+}
+
 // Decode a downloaded image (JPEG/PNG) and return the largest per-channel range
 // across a downscaled probe — the inverse of captureRenderer's isSourceBlank.
 // A blank/flat export ⇒ ~0; a real map ⇒ tens-to-hundreds. Reuses the browser's
@@ -63,6 +97,15 @@ async function runExport(browser, { evictWebGL }) {
   const ctx = await browser.newContext({ ...IPHONE, acceptDownloads: true });
   await ctx.addCookies([{ name: 'runink_session', value: globalThis.__sess, domain: 'localhost', path: '/' }]);
   const page = await ctx.newPage();
+
+  // Serve the synthetic demo data (replaces the gitignored real public/data).
+  const fx = makeFixture();
+  await page.route('**/data/index.json', (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify(fx.index) }));
+  await page.route('**/data/tracks/*.json', (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify(fx.track) }));
+  await page.route('**/data/cities.json', (route) =>
+    route.fulfill({ contentType: 'application/json', body: '[]' }));
 
   let blankDetected = false, serverStatus = 0, timings = null;
   const consoleErrors = [];
