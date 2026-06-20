@@ -83,6 +83,12 @@ jobs:
         # Playwright renderer for the fallback scenario.
         run: npx playwright install --with-deps webkit chromium
 
+      - name: Build client
+        # The server-side render loads its internal render page from the built
+        # dist/. Without this the page 404s its bundle and falls back to a
+        # CSP-locked page where page.waitForFunction can't eval → render 500.
+        run: npm run build
+
       - name: Start render server (:3008)
         run: |
           nohup node --import tsx server/index.ts > render-server.log 2>&1 &
