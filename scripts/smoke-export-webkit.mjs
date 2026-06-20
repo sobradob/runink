@@ -65,12 +65,15 @@ async function runExport(browser, { evictWebGL }) {
   const page = await ctx.newPage();
 
   let blankDetected = false, serverStatus = 0, timings = null;
+  const consoleErrors = [];
   page.on('console', (m) => {
     const t = m.text();
     if (/snapshot is blank|MAP_BLANK|reads as uniform/i.test(t)) blankDetected = true;
+    if (m.type() === 'error') consoleErrors.push(t);
     const tm = t.match(/\[export\] timings (\{.*\})/);
     if (tm) { try { timings = JSON.parse(tm[1]); } catch { /* ignore */ } }
   });
+  page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`));
   page.on('response', (r) => { if (r.url().includes('/api/render/export')) serverStatus = r.status(); });
 
   if (evictWebGL) {
@@ -91,12 +94,33 @@ async function runExport(browser, { evictWebGL }) {
     });
   }
 
+  // On any failure, dump enough state to diagnose from CI artifacts/logs
+  // instead of re-running blind.
+  const scenario = evictWebGL ? 'evicted' : 'healthy';
+  async function diagnose(stage, err) {
+    try { await page.screenshot({ path: `webkit-fail-${scenario}.png`, fullPage: true }); } catch { /* */ }
+    let visible = '';
+    try {
+      visible = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('button, h1, h2, h3'))
+          .map((e) => (e.textContent || '').trim()).filter(Boolean).slice(0, 40).join(' | '));
+    } catch { /* */ }
+    console.error(`[smoke-export-webkit] ${scenario} FAILED at ${stage}: ${err?.message || err}`);
+    console.error(`[smoke-export-webkit] visible controls: ${visible}`);
+    if (consoleErrors.length) console.error(`[smoke-export-webkit] page errors: ${consoleErrors.join(' || ')}`);
+  }
+
   await page.goto(APP, { waitUntil: 'networkidle' });
   await page.waitForTimeout(900);
-  await page.getByText('Single run', { exact: false }).first().click();
-  await page.waitForTimeout(800);
-  await page.getByText('Los Angeles - Base', { exact: false }).first().click();
-  await page.waitForTimeout(4000);
+  try {
+    await page.getByText('Single run', { exact: false }).first().click({ timeout: 15000 });
+    await page.waitForTimeout(800);
+    await page.getByText('Los Angeles - Base', { exact: false }).first().click({ timeout: 20000 });
+    await page.waitForTimeout(4000);
+  } catch (e) {
+    await diagnose('run-selection', e);
+    throw e;
+  }
 
   const dlP = page.waitForEvent('download', { timeout: 90000 }).catch(() => null);
   // The desktop sidebar (hidden via `md:`) and the mobile bottom sheet both

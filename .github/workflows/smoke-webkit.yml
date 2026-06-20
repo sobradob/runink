@@ -113,6 +113,14 @@ jobs:
       - name: Run WebKit export smoke
         run: node scripts/smoke-export-webkit.mjs
 
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit-fail-screenshots
+          path: webkit-fail-*.png
+          if-no-files-found: ignore
+
       - name: Server logs on failure
         if: failure()
         run: |
