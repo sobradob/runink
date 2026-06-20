@@ -1,5 +1,32 @@
 # Lessons Learned
 
+## 2026-06-19: A smoke test on the wrong engine + a byte-size check = false confidence (mobile export)
+**Failure mode:** The iOS blank-map export bug recurred a third time despite BOA-129
+shipping a "fix" with a green smoke test. Two compounding reasons: (1) the test ran
+desktop **Chromium** in Docker, which structurally cannot reproduce iOS WebKit's
+WebGL buffer-readback eviction; (2) it simulated the failure as a perfectly *uniform*
+fill — exactly the case the detector already caught — and asserted only `bytes > 100KB`,
+which a blank-map-with-overlays export (still ~100KB of HTML overlays) passes.
+The detector's real gap was a *partially*-corrupt frame: it sampled only the top-left
+48×48 and required perfect uniformity, so any corner variation read as "content".
+**Detection:** User screenshot of a shipped export — HTML overlays present (title,
+markers, watermark), WebGL layers gone (basemap + route), markers stacked center-screen
+(map never established its view). The signature of WebGL-survived-display-but-failed-readback.
+**Prevention:**
+- Test the export on the **engine that actually fails**: Playwright `webkit`, at an
+  iPhone descriptor (`devices['iPhone 14']`), not Chromium. See `scripts/smoke-export-webkit.mjs`
+  + `.github/workflows/smoke-webkit.yml`.
+- Assert the **output contains a map**, not its byte size: decode the downloaded image
+  and measure per-channel pixel range (blank ⇒ ~0, real map ⇒ tens-to-hundreds). Byte
+  size cannot distinguish blank-with-overlays from a real poster.
+- Blank detection should measure variance across the **whole frame** (nearest-neighbour
+  downscale, global per-channel range), erring toward "blank" — a false positive only
+  routes to the correct server render; a false negative ships a blank poster.
+- "Display works" ≠ "readback works": on-screen WebGL compositing and `toDataURL`/
+  `drawImage` pixel readback are different capabilities; iOS supports the first reliably,
+  the second only under memory budget. The durable fix is to not do client readback on
+  the device — render server-side (one renderer, see 2026-05-22) — with capture as a fast path.
+
 ## 2026-06-18: In a git worktree, Edit the worktree path — not the bare repo root (BOA-119)
 **Failure mode:** Working on branch `claude/sad-satoshi-a8cbe3` in a worktree under
 `.../runink/.claude/worktrees/sad-satoshi-a8cbe3/`, I passed Read/Edit/Write

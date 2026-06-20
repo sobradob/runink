@@ -29,6 +29,7 @@ import { EditorSteps, type EditorStep } from './EditorSteps';
 import { loadPosterStyle, savePosterStyle } from '@/features/onboarding/services/outputMode';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
 import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer';
+import { createExportTimer, detectExportDevice } from '../infrastructure/exportTimer';
 import { applyWatermark } from '../infrastructure/renderer/watermark';
 import { ThemeStrip } from '@/features/theme/ui/ThemeGallery';
 
@@ -48,6 +49,28 @@ const INSTANT_EXPORT = true;
  *  smoke tests have always proven (renders in 2-7 s) and is plenty for a
  *  shared image. Paid prints keep full DPI via the order route. */
 const FREE_EXPORT_MAX_DPI = 150;
+
+/** Free/preview exports are screen- and social-destined (Instagram, sharing,
+ *  phone wallpaper) — NOT print. So we render them at screen resolution, with
+ *  the longest side capped here, rather than at print DPI. This is what makes
+ *  the device-independent server *fallback* finish in ~1-2 s on the 1-vCPU box
+ *  instead of the 6-8 s a 150-DPI print-sized render takes (render time scales
+ *  with pixel count). It also shrinks the client capture canvas, easing the iOS
+ *  memory pressure that causes blank readbacks in the first place. Paid prints
+ *  keep full DPI via the order route (renderPoster(printDimensions)). */
+const SCREEN_EXPORT_MAX_PX = 1350;
+
+/** Right-size a poster's dimensions for a free/preview export: keep the aspect
+ *  ratio (widthMm/heightMm), but pick a DPI so the longest side lands near
+ *  SCREEN_EXPORT_MAX_PX — never above the print DPI or the free-export ceiling.
+ *  Single source of truth for BOTH the capture and server-render paths so their
+ *  output dimensions (and the reported output_px) always match. */
+function freeExportDimensions(dims: PosterDimensions): PosterDimensions {
+  const longestMm = Math.max(dims.widthMm, dims.heightMm);
+  const screenDpi = (SCREEN_EXPORT_MAX_PX * 25.4) / longestMm;
+  const dpi = Math.max(1, Math.min(dims.dpi, FREE_EXPORT_MAX_DPI, Math.round(screenDpi)));
+  return { ...dims, dpi };
+}
 
 /** Free/digital exports encode as JPEG — far smaller and faster to load and
  *  share than PNG for a photographic map poster (a ~1080×1350 JPEG is a few
@@ -221,6 +244,11 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   );
   const [exporting, setExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  /** Last export's per-stage timings + metadata, shown in the on-screen badge
+   *  under ?debugTiming so speeds are visible on a real phone without a remote
+   *  console. Mixed string/number bag — the `*_ms` keys are the timings. */
+  const [lastTimings, setLastTimings] =
+    useState<Record<string, string | number> | null>(null);
   const [showKmMarkers, setShowKmMarkers] = useState<boolean>(restored?.showKmMarkers ?? false);
   const [showStartFinish, setShowStartFinish] = useState<boolean>(restored?.showStartFinish ?? true);
 
@@ -446,10 +474,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     // Free exports, first choice: server-side Playwright render.
     if (RENDER_ON_SERVER) {
       try {
-        const dims = {
-          ...config.dimensions,
-          dpi: Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI),
-        };
+        const dims = freeExportDimensions(config.dimensions);
         const blob = await renderExportOnServer(buildServerPayload(dims), {
           widthMm: dims.widthMm,
           heightMm: dims.heightMm,
@@ -474,7 +499,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         const blob = await capturePosterToBlob({
           element: previewContainerRef.current,
           map: mapInstanceRef.current,
-          dimensions: config.dimensions,
+          dimensions: freeExportDimensions(config.dimensions),
         });
         lastRenderPathRef.current = 'capture';
         return await applyWatermark(blob, DIGITAL_EXPORT_FORMAT);
@@ -498,7 +523,14 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     setExporting(true);
 
     const isFirstExport = !sessionHasExported;
-    const startedAt = performance.now();
+    // ExportTimer: per-stage speeds for the whole pipeline. Surfaced three ways —
+    // Mixpanel (production split by device), a console line (read by the WebKit
+    // smoke test), and an on-screen badge under ?debugTiming (eyeball on a real
+    // phone). The dimensions are right-sized to screen/social resolution so the
+    // server fallback is fast; see freeExportDimensions.
+    const timer = createExportTimer();
+    const { device, viewport } = detectExportDevice();
+    const dims = freeExportDimensions(config.dimensions);
     try {
       // Collapse mobile sheet so the map is fully visible for capture
       collapseSheetRef.current?.();
@@ -506,42 +538,49 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
 
       let blob: Blob;
       // INSTANT_EXPORT (BOA-125 Phase 0): grab the on-screen preview directly
-      // via the capture renderer — typically <1s. Falls back to the full
-      // renderPoster() chain (server → capture → canvas) on failure.
+      // via the capture renderer — typically <1s. The hardened blank detection
+      // in captureRenderer throws MAP_BLANK when iOS hands back an evicted
+      // (blank) WebGL frame, routing straight to the device-independent server
+      // render below.
       if (INSTANT_EXPORT && USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
+        const stopCapture = timer.span('capture_ms');
         try {
           const rawBlob = await capturePosterToBlob({
             element: previewContainerRef.current,
             map: mapInstanceRef.current,
-            dimensions: config.dimensions,
+            dimensions: dims,
+            mark: timer.record,
           });
+          stopCapture();
           lastRenderPathRef.current = 'capture';
+          const stopWm = timer.span('watermark_ms');
           blob = await applyWatermark(rawBlob, DIGITAL_EXPORT_FORMAT);
+          stopWm();
         } catch (captureErr) {
+          stopCapture(); // record how long capture ran before failing
           // Capture threw OR produced a blank map. The latter is the iOS
-          // failure mode (WebGL buffer evicted → blank toDataURL) that shipped
+          // failure mode (WebGL buffer evicted → blank readback) that shipped
           // posters with no route/basemap, only HTML overlays. Go straight to
           // the device-independent server render. We call it directly rather
           // than via renderPoster()'s `RENDER_ON_SERVER` branch so the fix does
           // not depend on the VITE_RENDER_ON_SERVER *client build* flag being
           // set — the server has its own ENABLE_SERVER_RENDER gate and returns
           // 503 if disabled, in which case we drop to the client chain.
+          const reason = captureErr instanceof Error ? captureErr.message : String(captureErr);
           console.warn('[export] Instant capture failed/blank, trying server render:', captureErr);
-          window.mixpanel?.track('instant_export_fallback', {
-            error: captureErr instanceof Error ? captureErr.message : String(captureErr),
-          });
+          window.mixpanel?.track('instant_export_fallback', { error: reason, device });
           try {
-            const dims = {
-              ...config.dimensions,
-              dpi: Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI),
-            };
+            const stopServer = timer.span('server_ms');
             const rawServer = await renderExportOnServer(buildServerPayload(dims), {
               widthMm: dims.widthMm,
               heightMm: dims.heightMm,
               dpi: dims.dpi,
             });
+            stopServer();
             lastRenderPathRef.current = 'server';
+            const stopWm = timer.span('watermark_ms');
             blob = await applyWatermark(rawServer, DIGITAL_EXPORT_FORMAT);
+            stopWm();
           } catch (serverErr) {
             console.warn('[export] Server render unavailable, using client fallback chain:', serverErr);
             blob = await renderPoster();
@@ -551,20 +590,36 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         blob = await renderPoster();
       }
 
+      const timings = timer.finish();
       const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.${DIGITAL_EXPORT_EXT}`;
       downloadBlob(blob, filename);
       sessionHasExported = true;
+
+      // Single structured line for the WebKit smoke test (and Safari remote
+      // console) to parse — keep the `[export] timings` prefix stable.
+      console.info('[export] timings', JSON.stringify({
+        device,
+        viewport,
+        render_path: lastRenderPathRef.current,
+        file_bytes: blob.size,
+        ...timings,
+      }));
+      setLastTimings({ device, viewport, render_path: lastRenderPathRef.current, ...timings });
+
       window.mixpanel?.track('export_completed', {
         mode,
         theme_id: config.themeId,
         render_path: lastRenderPathRef.current,
+        device,
+        viewport,
         size: config.dimensions.label,
-        output_px: `${mmToPx(config.dimensions.widthMm, Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI))}x${mmToPx(config.dimensions.heightMm, Math.min(config.dimensions.dpi, FREE_EXPORT_MAX_DPI))}`,
+        output_px: `${mmToPx(dims.widthMm, dims.dpi)}x${mmToPx(dims.heightMm, dims.dpi)}`,
         format: DIGITAL_EXPORT_FORMAT.type,
-        render_ms: Math.round(performance.now() - startedAt),
+        render_ms: timings.total_ms,
         first_export: isFirstExport,
         file_bytes: blob.size,
         instant_export: INSTANT_EXPORT,
+        ...timings,
       });
 
       // Show post-export upsell modal
@@ -572,7 +627,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       window.mixpanel?.track('export_upsell_shown', { size: config.dimensions.label, theme_id: config.themeId });
     } catch (err) {
       console.error('Export failed:', err);
-      window.mixpanel?.track('export_failed', { mode, theme_id: config.themeId });
+      window.mixpanel?.track('export_failed', { mode, theme_id: config.themeId, device });
     } finally {
       setExporting(false);
     }
@@ -753,6 +808,28 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
           <SettingsPanel {...settingsPanelProps} hideActions hideTheme controlRef={settingsControlRef} />
         </MobileSettingsSheet>
       </div>
+
+      {lastTimings &&
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).has('debugTiming') && (
+          <div
+            data-export-hide="true"
+            className="fixed bottom-2 left-2 z-50 max-w-[90vw] rounded-md bg-black/85 px-3 py-2 font-mono text-[11px] leading-tight text-green-300 shadow-lg"
+            onClick={() => setLastTimings(null)}
+          >
+            <div className="text-white/60">
+              export · {lastTimings.device} · {lastTimings.render_path} ·{' '}
+              {(Number(lastTimings.file_bytes) / 1024 / 1024).toFixed(2)}MB
+            </div>
+            {Object.entries(lastTimings)
+              .filter(([k]) => k.endsWith('_ms'))
+              .map(([k, v]) => (
+                <div key={k}>
+                  {k.replace(/_ms$/, '').padEnd(13, ' ')} {v}ms
+                </div>
+              ))}
+          </div>
+        )}
 
       {showExportModal && (
         <ExportSuccessModal

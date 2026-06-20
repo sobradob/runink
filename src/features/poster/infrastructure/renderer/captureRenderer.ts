@@ -6,47 +6,71 @@ function mmToPixels(mm: number, dpi: number): number {
   return Math.round((mm / 25.4) * dpi);
 }
 
+function perfNow(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
 interface CaptureOptions {
   element: HTMLElement;
   map: MaplibreMap;
   dimensions: PosterDimensions;
+  /** Optional sink for per-stage timings (ms). Wired to the ExportTimer so the
+   *  capture stages show up alongside the server/watermark spans. */
+  mark?: (name: string, ms: number) => void;
 }
 
 /**
- * True when the source holds no usable content: fully transparent, or every
- * sampled pixel (nearly) identical. A solid single colour is how a broken
- * WebGL readback manifests — iOS Safari evicts WebGL contexts under memory
- * pressure and toDataURL then returns a VALID but all-blank PNG, which the
- * old `dataUrl === 'data:,'` check waved through. A real rendered map always
- * has contrast (route line vs background), even with all layers toggled off.
+ * True when the source holds no usable content: fully transparent, or (nearly)
+ * a single flat colour across the WHOLE frame. A solid/near-solid fill is how a
+ * broken WebGL readback manifests — iOS evicts WebGL contexts under memory
+ * pressure and toDataURL then returns a VALID but blank PNG, which the old
+ * `dataUrl === 'data:,'` check waved through. A real rendered map always has
+ * contrast somewhere (route line, labels, basemap features).
+ *
+ * Detection: downscale the entire source to a small probe with nearest-neighbour
+ * sampling (NOT smoothing — smoothing blends a thin route line into the basemap
+ * and hides it), then measure the per-channel range across all sampled pixels.
+ * A flat range on every channel ⇒ blank. This is strictly stronger than the old
+ * "top-left 48×48 must be uniform" check, which missed the real iOS failure
+ * mode: a partially-corrupt frame whose top-left corner happened to vary enough
+ * to read as content while the map itself was gone.
+ *
+ * Errs toward "blank": a false positive only routes the export to the
+ * (correct, fast) server render, whereas a false negative ships a blank poster.
  *
  * Accepts a live canvas OR a decoded snapshot <img>: the two can disagree on
  * iOS (the canvas samples fine, yet its toDataURL frame is blank), so we
  * check both — see capturePosterToBlob.
  */
 function isSourceBlank(source: CanvasImageSource): boolean {
-  const SAMPLE = 48;
+  const N = 96; // 96×96 = 9216 samples spread across the whole frame
   const probe = document.createElement('canvas');
-  probe.width = SAMPLE;
-  probe.height = SAMPLE;
+  probe.width = N;
+  probe.height = N;
   const ctx = probe.getContext('2d', { willReadFrequently: true });
   if (!ctx) return false; // can't tell — assume content is fine
   try {
-    ctx.drawImage(source, 0, 0, SAMPLE, SAMPLE);
-    const data = ctx.getImageData(0, 0, SAMPLE, SAMPLE).data;
-    const [r0, g0, b0, a0] = data;
-    const TOLERANCE = 4;
+    ctx.imageSmoothingEnabled = false; // nearest-neighbour preserves route/label pixels
+    ctx.drawImage(source, 0, 0, N, N);
+    const data = ctx.getImageData(0, 0, N, N).data;
+    let rMin = 255, rMax = 0, gMin = 255, gMax = 0;
+    let bMin = 255, bMax = 0, aMin = 255, aMax = 0;
     for (let i = 0; i < data.length; i += 4) {
-      if (
-        Math.abs(data[i] - r0) > TOLERANCE ||
-        Math.abs(data[i + 1] - g0) > TOLERANCE ||
-        Math.abs(data[i + 2] - b0) > TOLERANCE ||
-        Math.abs(data[i + 3] - a0) > TOLERANCE
-      ) {
-        return false; // found variation — real content
-      }
+      const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+      if (r < rMin) rMin = r; if (r > rMax) rMax = r;
+      if (g < gMin) gMin = g; if (g > gMax) gMax = g;
+      if (b < bMin) bMin = b; if (b > bMax) bMax = b;
+      if (a < aMin) aMin = a; if (a > aMax) aMax = a;
     }
-    return true;
+    const TOLERANCE = 6; // allow JPEG/compression noise on an otherwise flat fill
+    return (
+      rMax - rMin <= TOLERANCE &&
+      gMax - gMin <= TOLERANCE &&
+      bMax - bMin <= TOLERANCE &&
+      aMax - aMin <= TOLERANCE
+    );
   } catch {
     return false; // sampling failed — don't block the export on the probe
   }
@@ -76,7 +100,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
  * before html-to-image runs.
  */
 export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
-  const { element, map, dimensions } = opts;
+  const { element, map, dimensions, mark } = opts;
+  const since = (name: string, start: number) => mark?.(name, perfNow() - start);
   const targetWidth = mmToPixels(dimensions.widthMm, dimensions.dpi);
   const targetHeight = mmToPixels(dimensions.heightMm, dimensions.dpi);
 
@@ -119,6 +144,7 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
   const pixelRatio = outputWidth / previewWidth;
 
   // Wait for map tiles to be fully loaded (proven double-idle pattern)
+  const tilesStart = perfNow();
   await Promise.race([
     new Promise<void>((resolve) => {
       const done = () => {
@@ -135,9 +161,12 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
     new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
   ]);
 
+  since('tiles_wait_ms', tilesStart);
+
   // Snapshot the WebGL canvas IMMEDIATELY while the buffer is guaranteed valid.
   // html-to-image calls canvas.toDataURL() later during DOM cloning, but by then
   // MapLibre may have cleared the WebGL buffer — causing a blank map in the export.
+  const blankCheckStart = perfNow();
   const mapCanvas = map.getCanvas();
 
   if (isSourceBlank(mapCanvas)) {
@@ -165,6 +194,8 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
     throw new Error('MAP_BLANK');
   }
 
+  since('blank_check_ms', blankCheckStart);
+
   // Swap the live WebGL canvas with the (validated) static image so
   // html-to-image serializes a stable bitmap instead of a volatile WebGL
   // context.
@@ -181,6 +212,7 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
 
   try {
     // Capture the DOM at high resolution using pixelRatio
+    const domStart = perfNow();
     const blob = await toBlob(element, {
       width: previewWidth,
       height: element.offsetHeight,
@@ -192,6 +224,7 @@ export async function capturePosterToBlob(opts: CaptureOptions): Promise<Blob> {
       },
     });
 
+    since('capture_dom_ms', domStart);
     if (!blob) throw new Error('html-to-image returned null blob');
     return blob;
   } finally {
