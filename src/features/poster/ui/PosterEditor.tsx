@@ -22,16 +22,14 @@ import { getDefaultTheme, getThemeById } from '@/features/theme/infrastructure/t
 import { useTrack, useTracks } from '@/features/data-import/hooks/useActivityData';
 import { MapPreview } from '@/features/map/ui/MapPreview';
 import { StatsOverlay } from './StatsOverlay';
-import { SettingsPanel, SettingsActions, type SettingsPanelControl } from './SettingsPanel';
+import { SettingsPanel, SettingsActions } from './SettingsPanel';
 import { MobileSettingsSheet } from './MobileSettingsSheet';
 import { collapsedSheetHeight } from './mobileSheetMetrics';
-import { EditorSteps, type EditorStep } from './EditorSteps';
 import { loadPosterStyle, savePosterStyle } from '@/features/onboarding/services/outputMode';
 import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
 import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer';
 import { createExportTimer, detectExportDevice } from '../infrastructure/exportTimer';
 import { applyWatermark } from '../infrastructure/renderer/watermark';
-import { ThemeStrip } from '@/features/theme/ui/ThemeGallery';
 
 /** Flip to false to fall back to the old Canvas-based renderer */
 const USE_CAPTURE_RENDERER = true;
@@ -105,7 +103,7 @@ import {
   type GiftContext,
 } from '@/features/checkout/services/checkoutApi';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
-import { clearDraft, draftKey, readDraft, usePersistDraft } from '@/shared/hooks/usePersistedDraft';
+import { draftKey, readDraft, usePersistDraft } from '@/shared/hooks/usePersistedDraft';
 
 interface PersistedDraft {
   config: PosterConfig;
@@ -297,17 +295,6 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const collapseSheetRef = useRef<(() => void) | null>(null);
   const expandSheetRef = useRef<(() => void) | null>(null);
-  const settingsControlRef = useRef<SettingsPanelControl | null>(null);
-
-  // Guided-step rail: expand the sheet and jump to the tapped section. Theme is
-  // already always-visible via the strip, so it only needs the sheet expanded.
-  const handleStep = useCallback((step: EditorStep) => {
-    window.mixpanel?.track('editor_step_opened', { step, mode });
-    expandSheetRef.current?.();
-    if (step !== 'Theme') {
-      settingsControlRef.current?.openAndScroll(step);
-    }
-  }, [mode]);
 
   // Load track data (Strava tracks are in-memory, Garmin tracks fetched from files)
   const { track: singleTrack } = useTrack(mode === 'individual' ? activity?.id ?? null : null, stravaTracksMap);
@@ -638,8 +625,9 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
   // BOA-131: the mobile settings sheet is position:fixed, so it floats over the
   // poster. Reserve its collapsed footprint below the preview (mobile only) so
   // the full poster — including the bottom title/stats — stays visible while
-  // editing. The mobile sheet always renders both the steps rail and theme strip.
-  const mobileSheetReserve = collapsedSheetHeight({ themeStrip: true, stepsRail: true });
+  // editing. The collapsed sheet shows the drag handle + Export/Order bar; the
+  // category deck and its panel live in the expandable area.
+  const mobileSheetReserve = collapsedSheetHeight();
 
   const orderButtonSlot = giftContext ? (
     <GiftOrderButton
@@ -787,15 +775,6 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
         <MobileSettingsSheet
           collapseRef={collapseSheetRef}
           expandRef={expandSheetRef}
-          stepsRail={<EditorSteps onStep={handleStep} />}
-          themeStrip={
-            <ThemeStrip
-              selectedId={config.themeId}
-              onSelect={handleThemeChange}
-              tracks={tracks}
-              isCompilation={mode === 'compilation'}
-            />
-          }
           actionButtons={
             <SettingsActions
               onExport={handleExport}
@@ -805,7 +784,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
             />
           }
         >
-          <SettingsPanel {...settingsPanelProps} hideActions hideTheme controlRef={settingsControlRef} />
+          <SettingsPanel {...settingsPanelProps} hideActions />
         </MobileSettingsSheet>
       </div>
 

@@ -1,21 +1,15 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Theme } from '@/types/theme';
 import type { TrackData } from '@/types/activity';
 import type { PosterConfig, LayerVisibility, MarkerIcon } from '@/types/poster';
 import { POSTER_PRESETS, MARKER_ICONS } from '@/types/poster';
 import { ThemeGallery } from '@/features/theme/ui/ThemeGallery';
 
-/** Imperative handle exposed to the editor so the guided-step rail can jump to
- *  a settings category on mobile (selects its deck tab). */
-export interface SettingsPanelControl {
-  openAndScroll: (title: string) => void;
-}
-
 /** Mobile "category deck" (RunInk Editor Redesign · A). The mobile sheet shows
  *  one category at a time via a horizontal tab strip instead of stacking every
  *  section into one squashed accordion. `id` must match the Section `title` it
- *  reveals. Theme is intentionally absent — it lives in the always-visible
- *  ThemeStrip above the deck. Desktop ignores this and stacks all sections. */
+ *  reveals. Theme leads the deck (highest-impact edit). Desktop ignores the
+ *  deck and stacks all sections. */
 const DECK_ICON_PROPS = {
   viewBox: '0 0 24 24',
   fill: 'none',
@@ -27,6 +21,7 @@ const DECK_ICON_PROPS = {
 };
 
 const DECK_CATEGORIES: { id: string; label: string; icon: ReactNode }[] = [
+  { id: 'Theme', label: 'Theme', icon: <svg {...DECK_ICON_PROPS}><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" /></svg> },
   { id: 'Text', label: 'Text', icon: <svg {...DECK_ICON_PROPS}><path d="M5 7V5h14v2M12 5v14M9 19h6" /></svg> },
   { id: 'Size', label: 'Size', icon: <svg {...DECK_ICON_PROPS}><path d="M9 3H5v4M15 3h4v4M9 21H5v-4M15 21h4v-4" /></svg> },
   { id: 'Layers', label: 'Layers', icon: <svg {...DECK_ICON_PROPS}><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" /></svg> },
@@ -55,10 +50,6 @@ interface SettingsPanelProps {
   orderButtonSlot?: React.ReactNode;
   /** When true, hides the bottom action buttons (they render in the mobile sheet bar instead) */
   hideActions?: boolean;
-  /** When true, hides the Theme section (the mobile sheet shows a persistent theme strip instead) */
-  hideTheme?: boolean;
-  /** Imperative control for the guided-step rail (mobile). */
-  controlRef?: React.MutableRefObject<SettingsPanelControl | null>;
 }
 
 /** Extracted action buttons — reused in desktop sidebar and mobile sheet collapsed bar */
@@ -105,8 +96,6 @@ export function SettingsPanel({
   exporting,
   orderButtonSlot,
   hideActions,
-  hideTheme,
-  controlRef,
 }: SettingsPanelProps) {
   const updateLayer = (key: keyof LayerVisibility, value: boolean) => {
     onConfigChange({ layers: { ...config.layers, [key]: value } });
@@ -116,22 +105,9 @@ export function SettingsPanel({
 
   // Category deck (mobile only — desktop forces every section visible via
   // `md:block`). One active category at a time, selected from the tab strip, so
-  // each gets the full panel instead of a squashed accordion slice. Text is the
-  // highest-impact first edit, so the deck opens there. Theme is omitted — the
-  // mobile sheet shows a persistent theme strip above the deck instead.
-  const [activeCategory, setActiveCategory] = useState<string>('Text');
-
-  // Guided-step rail deep-link: select the matching deck tab. Theme has no tab
-  // (it lives in the persistent strip), so unknown ids are ignored.
-  const openAndScroll = useCallback((title: string) => {
-    if (DECK_CATEGORIES.some((c) => c.id === title)) setActiveCategory(title);
-  }, []);
-
-  useEffect(() => {
-    if (!controlRef) return;
-    controlRef.current = { openAndScroll };
-    return () => { controlRef.current = null; };
-  }, [controlRef, openAndScroll]);
+  // each gets the full panel instead of a squashed accordion slice. Theme leads
+  // the deck, so the sheet opens on the highest-impact edit.
+  const [activeCategory, setActiveCategory] = useState<string>('Theme');
 
   return (
     <div className="w-full md:w-72 bg-[#111] md:border-l border-white/10 overflow-y-auto flex flex-col">
@@ -166,17 +142,15 @@ export function SettingsPanel({
         })}
       </div>
 
-      {/* Theme */}
-      {!hideTheme && (
-        <Section title="Theme" active={activeCategory === 'Theme'}>
-          <ThemeGallery
-            selectedId={config.themeId}
-            onSelect={onThemeChange}
-            tracks={tracks}
-            isCompilation={mode === 'compilation'}
-          />
-        </Section>
-      )}
+      {/* Theme — leads the deck on mobile; stacked first on desktop */}
+      <Section title="Theme" active={activeCategory === 'Theme'}>
+        <ThemeGallery
+          selectedId={config.themeId}
+          onSelect={onThemeChange}
+          tracks={tracks}
+          isCompilation={mode === 'compilation'}
+        />
+      </Section>
 
       {/* Text — priority step 2 */}
       <Section title="Text" active={activeCategory === 'Text'}>

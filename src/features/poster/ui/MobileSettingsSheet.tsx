@@ -1,96 +1,90 @@
-import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { collapsedSheetHeight } from './mobileSheetMetrics';
 
-type SheetSnap = 'collapsed' | 'half' | 'full';
-
 const DRAG_THRESHOLD = 40;
+/** Open sheet never exceeds this fraction of the viewport — tall panels scroll. */
+const MAX_OPEN_FRACTION = 0.9;
 
 interface MobileSettingsSheetProps {
+  /** Scrollable settings — the category deck + its active panel. Hidden when collapsed. */
   children: ReactNode;
-  /** Slot for Export/Order buttons — always visible in collapsed bar */
+  /** Slot for Export/Order buttons — always visible, pinned to the bottom. */
   actionButtons: ReactNode;
-  /** Slot for the always-visible theme switcher strip, above the action buttons */
-  themeStrip?: ReactNode;
-  /** Slot for the guided-step rail (Theme → Text → Size), above the theme strip */
-  stepsRail?: ReactNode;
   /** Imperative collapse ref */
   collapseRef?: React.MutableRefObject<(() => void) | null>;
-  /** Imperative expand-to-full ref (used by the guided-step rail) */
+  /** Imperative expand ref (used when a deck tab is tapped) */
   expandRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-function snapToHeight(snap: SheetSnap, collapsedHeight: number): string {
-  switch (snap) {
-    case 'collapsed': return `${collapsedHeight}px`;
-    case 'half': return '50dvh';
-    case 'full': return '90dvh';
-  }
-}
-
-export function MobileSettingsSheet({ children, actionButtons, themeStrip, stepsRail, collapseRef, expandRef }: MobileSettingsSheetProps) {
-  const [snap, setSnap] = useState<SheetSnap>('collapsed');
+export function MobileSettingsSheet({ children, actionButtons, collapseRef, expandRef }: MobileSettingsSheetProps) {
+  const [open, setOpen] = useState(false);
+  // Natural height of the full sheet content (handle + active panel + actions),
+  // measured live so the open sheet hugs its content instead of snapping to a
+  // fixed height and leaving a gap above the pinned action bar.
+  const [contentHeight, setContentHeight] = useState(0);
   const [dragDelta, setDragDelta] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const startY = useRef(0);
-  const startSnap = useRef<SheetSnap>('collapsed');
-  // One-shot flag: scroll-to-expand only fires once per half-snap so the user
-  // can still scroll freely inside the sheet once it reaches full.
-  const scrollExpandArmed = useRef(true);
 
-  const collapse = useCallback(() => setSnap('collapsed'), []);
-  const expandFull = useCallback(() => setSnap('full'), []);
+  const handleRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  const collapsedHeight = collapsedSheetHeight();
+
+  const collapse = useCallback(() => setOpen(false), []);
+  const expand = useCallback(() => setOpen(true), []);
 
   // Expose collapse to parent for export flow
   useEffect(() => {
     if (!collapseRef) return;
     collapseRef.current = collapse;
-    return () => {
-      collapseRef.current = null;
-    };
+    return () => { collapseRef.current = null; };
   }, [collapseRef, collapse]);
 
-  // Expose expand-to-full so the guided-step rail can deep-link into a section
+  // Expose expand so tapping a category deck tab opens the panel.
   useEffect(() => {
     if (!expandRef) return;
-    expandRef.current = expandFull;
-    return () => {
-      expandRef.current = null;
+    expandRef.current = expand;
+    return () => { expandRef.current = null; };
+  }, [expandRef, expand]);
+
+  // Measure natural content height. panelRef wraps the settings inside a
+  // scroll container, so its offsetHeight is the *natural* (uncapped) height
+  // even while collapsed — meaning the open height is known before the user
+  // ever expands, and a tab switch (which changes the panel's height) re-fits
+  // the sheet via the ResizeObserver.
+  useLayoutEffect(() => {
+    const measure = () => {
+      const h = (handleRef.current?.offsetHeight ?? 0)
+        + (panelRef.current?.offsetHeight ?? 0)
+        + (actionsRef.current?.offsetHeight ?? 0);
+      setContentHeight(h);
     };
-  }, [expandRef, expandFull]);
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (panelRef.current) ro.observe(panelRef.current);
+    if (actionsRef.current) ro.observe(actionsRef.current);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
 
-  const isExpanded = snap !== 'collapsed';
-
-  // Body scroll lock while the sheet is expanded. Prevents the preview/page
-  // below from scrolling when the user is interacting with settings.
+  // Body scroll lock while the sheet is open. Prevents the preview/page below
+  // from scrolling when the user is interacting with settings.
   useEffect(() => {
-    if (!isExpanded) return;
+    if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [isExpanded]);
-
-  // Re-arm scroll-to-expand whenever the sheet leaves 'half' so a later
-  // drag-down + scroll cycle can expand it again.
-  useEffect(() => {
-    if (snap !== 'half') scrollExpandArmed.current = true;
-  }, [snap]);
-
-  const onSettingsScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    // Auto-expand to full when the user starts scrolling inside a half-height
-    // sheet — matches the iOS Maps / Apple Music sheet behaviour.
-    if (snap === 'half' && scrollExpandArmed.current && e.currentTarget.scrollTop > 4) {
-      scrollExpandArmed.current = false;
-      setSnap('full');
-    }
-  };
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
 
   const onTouchStart = (e: React.TouchEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest('input, select, textarea, button, a, [role="button"]')) return;
     startY.current = e.touches[0].clientY;
-    startSnap.current = snap;
     setIsDragging(true);
   };
 
@@ -105,42 +99,30 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, steps
     setIsDragging(false);
     const dy = dragDelta;
     setDragDelta(0);
-
     if (Math.abs(dy) < DRAG_THRESHOLD) return;
-
-    const current = startSnap.current;
-    if (dy > 0) {
-      // Dragging down — collapse one level
-      setSnap(current === 'full' ? 'half' : 'collapsed');
-    } else {
-      // Dragging up — expand one level
-      setSnap(current === 'collapsed' ? 'half' : 'full');
-    }
+    setOpen(dy < 0); // drag up opens, drag down collapses
   };
 
-  // Compute the CSS height, applying drag offset
-  const collapsedHeight = collapsedSheetHeight({ themeStrip: !!themeStrip, stepsRail: !!stepsRail });
-  const baseHeight = snapToHeight(snap, collapsedHeight);
-  const heightStyle = isDragging && dragDelta !== 0
-    ? `calc(${baseHeight} - ${dragDelta}px)`
-    : baseHeight;
+  const maxOpenPx = typeof window !== 'undefined' ? window.innerHeight * MAX_OPEN_FRACTION : 9999;
+  const openPx = Math.min(Math.max(contentHeight, collapsedHeight), maxOpenPx);
+  const basePx = open ? openPx : collapsedHeight;
+  const heightPx = isDragging && dragDelta !== 0
+    ? Math.max(collapsedHeight, basePx - dragDelta)
+    : basePx;
 
   return (
     <>
-      {/* Backdrop — only when expanded */}
-      {isExpanded && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40"
-          onClick={collapse}
-        />
+      {/* Backdrop — only when open */}
+      {open && (
+        <div className="fixed inset-0 z-40 bg-black/40" onClick={collapse} />
       )}
 
-      {/* Sheet — pinned to bottom, height changes between snaps */}
+      {/* Sheet — pinned to bottom, height hugs content (capped) when open */}
       <div
         className="fixed inset-x-0 bottom-0 z-50 flex flex-col bg-[#111] rounded-t-2xl border-t border-white/10"
         style={{
-          height: heightStyle,
-          maxHeight: '90dvh',
+          height: `${heightPx}px`,
+          maxHeight: `${MAX_OPEN_FRACTION * 100}dvh`,
           minHeight: `${collapsedHeight}px`,
           transition: isDragging ? 'none' : 'height 300ms cubic-bezier(0.32, 0.72, 0, 1)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -149,53 +131,39 @@ export function MobileSettingsSheet({ children, actionButtons, themeStrip, steps
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Drag handle + Customize button — opens straight to full so the
-            user doesn't have to drag up again to see most of the settings. */}
+        {/* Drag handle + Customize button */}
         <button
-          onClick={() => setSnap(isExpanded ? 'collapsed' : 'full')}
+          ref={handleRef}
+          onClick={() => setOpen(!open)}
           className="flex flex-col items-center pt-3 pb-2 flex-shrink-0 w-full"
         >
           <div className="w-10 h-1 rounded-full bg-white/30 mb-2" />
           <div className="flex items-center gap-1.5 text-xs text-white/50">
-            <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
             </svg>
-            {isExpanded ? 'Close settings' : 'Customize poster'}
+            {open ? 'Close settings' : 'Customize poster'}
           </div>
         </button>
 
-        {/* Guided-step rail — Theme → Text → Size, always visible so the next
-            step is one tap away in every snap state */}
-        {stepsRail && (
-          <div className="flex-shrink-0 pb-2">
-            {stepsRail}
-          </div>
-        )}
-
-        {/* Theme strip — always visible in every snap state so the
-            highest-impact edit never needs the sheet opened */}
-        {themeStrip && (
-          <div className="flex-shrink-0 pb-2">
-            {themeStrip}
-          </div>
-        )}
-
-        {/* Collapsed bar — always visible action buttons (scrollable when order flow expands) */}
-        <div className="px-4 pb-3 flex-shrink-0 overflow-y-auto max-h-[40dvh]">
-          {actionButtons}
-        </div>
-
-        {/* Scrollable settings content — hidden when collapsed */}
+        {/* Scrollable settings — the category deck + active panel. Hidden when
+            collapsed; takes the flexible space above the pinned action bar. */}
         <div
           className="flex-1 overflow-y-auto overscroll-contain min-h-0"
-          onScroll={onSettingsScroll}
           style={{
-            opacity: isExpanded ? 1 : 0,
-            pointerEvents: isExpanded ? 'auto' : 'none',
+            opacity: open ? 1 : 0,
+            pointerEvents: open ? 'auto' : 'none',
             transition: 'opacity 200ms',
           }}
         >
-          {children}
+          <div ref={panelRef}>{children}</div>
+        </div>
+
+        {/* Action bar — Export/Order, always visible, pinned to the bottom
+            (matches the redesign: tabs → panel → export). Scrolls internally
+            when the order flow expands. */}
+        <div ref={actionsRef} className="px-4 pt-3 pb-3 flex-shrink-0 border-t border-white/10 overflow-y-auto max-h-[50dvh]">
+          {actionButtons}
         </div>
       </div>
     </>
