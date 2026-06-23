@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import type { Theme } from '@/types/theme';
 import type { TrackData } from '@/types/activity';
 import type { PosterConfig, LayerVisibility, MarkerIcon } from '@/types/poster';
@@ -6,10 +6,34 @@ import { POSTER_PRESETS, MARKER_ICONS } from '@/types/poster';
 import { ThemeGallery } from '@/features/theme/ui/ThemeGallery';
 
 /** Imperative handle exposed to the editor so the guided-step rail can jump to
- *  (open + scroll to) a settings section on mobile. */
+ *  a settings category on mobile (selects its deck tab). */
 export interface SettingsPanelControl {
   openAndScroll: (title: string) => void;
 }
+
+/** Mobile "category deck" (RunInk Editor Redesign · A). The mobile sheet shows
+ *  one category at a time via a horizontal tab strip instead of stacking every
+ *  section into one squashed accordion. `id` must match the Section `title` it
+ *  reveals. Theme is intentionally absent — it lives in the always-visible
+ *  ThemeStrip above the deck. Desktop ignores this and stacks all sections. */
+const DECK_ICON_PROPS = {
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  className: 'w-[18px] h-[18px]',
+};
+
+const DECK_CATEGORIES: { id: string; label: string; icon: ReactNode }[] = [
+  { id: 'Text', label: 'Text', icon: <svg {...DECK_ICON_PROPS}><path d="M5 7V5h14v2M12 5v14M9 19h6" /></svg> },
+  { id: 'Size', label: 'Size', icon: <svg {...DECK_ICON_PROPS}><path d="M9 3H5v4M15 3h4v4M9 21H5v-4M15 21h4v-4" /></svg> },
+  { id: 'Layers', label: 'Layers', icon: <svg {...DECK_ICON_PROPS}><path d="M12 3l9 5-9 5-9-5 9-5zM3 13l9 5 9-5" /></svg> },
+  { id: 'Markers', label: 'Markers', icon: <svg {...DECK_ICON_PROPS}><path d="M12 21s-7-6.5-7-11a7 7 0 1 1 14 0c0 4.5-7 11-7 11z" /><circle cx="12" cy="10" r="2.3" /></svg> },
+  { id: 'Orientation', label: 'Map', icon: <svg {...DECK_ICON_PROPS}><circle cx="12" cy="12" r="9" /><path d="M15.5 8.5l-2 5-5 2 2-5 5-2z" /></svg> },
+  { id: 'Display', label: 'Display', icon: <svg {...DECK_ICON_PROPS}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="2.6" /></svg> },
+];
 
 interface SettingsPanelProps {
   config: PosterConfig;
@@ -90,29 +114,17 @@ export function SettingsPanel({
 
   const customMarkers = config.markers.filter((m) => m.type === 'custom');
 
-  // Controlled accordion (mobile only — desktop forces every section open via
-  // `md:block`). The guided priority sections start open so the user lands on
-  // the highest-impact controls without hunting. Theme is omitted here because
-  // the mobile sheet shows a persistent theme strip instead.
-  const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(['Theme', 'Text', 'Size']),
-  );
-  const sectionEls = useRef<Record<string, HTMLDivElement | null>>({});
+  // Category deck (mobile only — desktop forces every section visible via
+  // `md:block`). One active category at a time, selected from the tab strip, so
+  // each gets the full panel instead of a squashed accordion slice. Text is the
+  // highest-impact first edit, so the deck opens there. Theme is omitted — the
+  // mobile sheet shows a persistent theme strip above the deck instead.
+  const [activeCategory, setActiveCategory] = useState<string>('Text');
 
-  const toggleSection = (title: string) =>
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(title)) next.delete(title);
-      else next.add(title);
-      return next;
-    });
-
+  // Guided-step rail deep-link: select the matching deck tab. Theme has no tab
+  // (it lives in the persistent strip), so unknown ids are ignored.
   const openAndScroll = useCallback((title: string) => {
-    setOpenSections((prev) => new Set(prev).add(title));
-    // Defer so the section is rendered-open before we scroll to it.
-    requestAnimationFrame(() => {
-      sectionEls.current[title]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    if (DECK_CATEGORIES.some((c) => c.id === title)) setActiveCategory(title);
   }, []);
 
   useEffect(() => {
@@ -128,9 +140,35 @@ export function SettingsPanel({
         <h2 className="text-sm font-medium text-white/80 tracking-wider uppercase">Settings</h2>
       </div>
 
+      {/* Category deck — mobile only. Horizontal tab strip; the active tab
+          reveals exactly one section below (see DECK_CATEGORIES). */}
+      <div
+        className="md:hidden sticky top-0 z-10 flex gap-2 overflow-x-auto px-3 pt-3 pb-2 bg-[#111] border-b border-white/10"
+        style={{ scrollbarWidth: 'none' }}
+      >
+        {DECK_CATEGORIES.map((cat) => {
+          const isActive = activeCategory === cat.id;
+          return (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id)}
+              aria-pressed={isActive}
+              className={`flex-none flex flex-col items-center gap-1.5 px-4 py-2 rounded-xl border transition-colors ${
+                isActive
+                  ? 'bg-white border-white text-black'
+                  : 'bg-white/[0.04] border-transparent text-white/55 hover:text-white/80'
+              }`}
+            >
+              {cat.icon}
+              <span className="text-[11px] font-medium leading-none">{cat.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Theme */}
       {!hideTheme && (
-        <Section title="Theme" open={openSections.has('Theme')} onToggle={toggleSection} registerEl={(el) => (sectionEls.current['Theme'] = el)}>
+        <Section title="Theme" active={activeCategory === 'Theme'}>
           <ThemeGallery
             selectedId={config.themeId}
             onSelect={onThemeChange}
@@ -141,7 +179,7 @@ export function SettingsPanel({
       )}
 
       {/* Text — priority step 2 */}
-      <Section title="Text" open={openSections.has('Text')} onToggle={toggleSection} registerEl={(el) => (sectionEls.current['Text'] = el)}>
+      <Section title="Text" active={activeCategory === 'Text'}>
         <input
           type="text"
           placeholder="Title (e.g. London)"
@@ -159,7 +197,7 @@ export function SettingsPanel({
       </Section>
 
       {/* Dimensions — priority step 3 */}
-      <Section title="Size" open={openSections.has('Size')} onToggle={toggleSection} registerEl={(el) => (sectionEls.current['Size'] = el)}>
+      <Section title="Size" active={activeCategory === 'Size'}>
         {dimensionsLocked ? (
           <div>
             <div className="text-xs px-2 py-1.5 rounded border border-white/40 bg-white/10 text-white text-center">
@@ -192,7 +230,7 @@ export function SettingsPanel({
       </Section>
 
       {/* Layers */}
-      <Section title="Layers" open={openSections.has('Layers')} onToggle={toggleSection} registerEl={(el) => (sectionEls.current['Layers'] = el)}>
+      <Section title="Layers" active={activeCategory === 'Layers'}>
         <Toggle label="Water" checked={config.layers.water} onChange={(v) => updateLayer('water', v)} />
         <Toggle label="Parks & green" checked={config.layers.parks} onChange={(v) => updateLayer('parks', v)} />
         <Toggle label="Buildings" checked={config.layers.buildings} onChange={(v) => updateLayer('buildings', v)} />
@@ -201,7 +239,7 @@ export function SettingsPanel({
       </Section>
 
       {/* Markers */}
-      <Section title="Markers" open={openSections.has('Markers')} onToggle={toggleSection} registerEl={(el) => (sectionEls.current['Markers'] = el)}>
+      <Section title="Markers" active={activeCategory === 'Markers'}>
         {/* Auto markers (individual mode) */}
         {mode === 'individual' && (
           <div className="mb-3 space-y-1">
@@ -256,7 +294,7 @@ export function SettingsPanel({
       </Section>
 
       {/* Map orientation */}
-      <Section title="Orientation" open={openSections.has('Orientation')} onToggle={toggleSection} registerEl={(el) => (sectionEls.current['Orientation'] = el)}>
+      <Section title="Orientation" active={activeCategory === 'Orientation'}>
         <div className="flex items-center gap-2 mb-2">
           <button
             onClick={() => onConfigChange({ bearing: 0 })}
@@ -282,7 +320,7 @@ export function SettingsPanel({
       </Section>
 
       {/* Display options */}
-      <Section title="Display" open={openSections.has('Display')} onToggle={toggleSection} registerEl={(el) => (sectionEls.current['Display'] = el)}>
+      <Section title="Display" active={activeCategory === 'Display'}>
         <Toggle
           label="Show stats"
           checked={config.showStats}
@@ -318,32 +356,21 @@ export function SettingsPanel({
 function Section({
   title,
   children,
-  open,
-  onToggle,
-  registerEl,
+  active,
 }: {
   title: string;
   children: React.ReactNode;
-  open: boolean;
-  onToggle: (title: string) => void;
-  registerEl?: (el: HTMLDivElement | null) => void;
+  /** Mobile: whether this category's deck tab is selected. Desktop ignores it
+   *  (`md:block` shows every section stacked). */
+  active: boolean;
 }) {
   return (
-    <div className="border-b border-white/10" ref={registerEl}>
-      {/* Collapsible header on mobile, static on desktop */}
-      <button
-        onClick={() => onToggle(title)}
-        className="w-full p-4 flex items-center justify-between md:pointer-events-none"
-      >
+    <div className={`border-b border-white/10 ${active ? 'block' : 'hidden'} md:block`}>
+      {/* Section label — desktop only; on mobile the deck tab names the category. */}
+      <div className="hidden md:block p-4 pb-0">
         <h3 className="text-xs font-medium text-white/40 tracking-wider uppercase">{title}</h3>
-        <svg
-          className={`w-3.5 h-3.5 text-white/20 transition-transform md:hidden ${open ? 'rotate-180' : ''}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      <div className={`px-4 pb-4 ${open ? 'block' : 'hidden'} md:block`}>
+      </div>
+      <div className="px-4 pt-4 pb-5 md:pt-3 md:pb-4">
         {children}
       </div>
     </div>
