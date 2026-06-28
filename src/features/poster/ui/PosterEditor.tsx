@@ -26,68 +26,6 @@ import { SettingsPanel, SettingsActions } from './SettingsPanel';
 import { MobileSettingsSheet } from './MobileSettingsSheet';
 import { collapsedSheetHeight } from './mobileSheetMetrics';
 import { loadPosterStyle, savePosterStyle } from '@/features/onboarding/services/outputMode';
-import { renderPosterToBlob, downloadBlob } from '../infrastructure/renderer';
-import { capturePosterToBlob } from '../infrastructure/renderer/captureRenderer';
-import { createExportTimer, detectExportDevice } from '../infrastructure/exportTimer';
-import { applyWatermark } from '../infrastructure/renderer/watermark';
-
-/** Flip to false to fall back to the old Canvas-based renderer */
-const USE_CAPTURE_RENDERER = true;
-
-/** When true, free exports grab the on-screen preview instantly via the capture
- *  renderer (<1s) instead of blocking on the server render (2-7s+). The server
- *  render still runs as the fallback when capture fails. Phase 0 of the
- *  two-tier export plan (BOA-125). */
-const INSTANT_EXPORT = true;
-
-/** Free exports render server-side at this DPI ceiling. Print DPI (300) makes
- *  the render viewport ~16.7M px, which software WebGL on the 1-vCPU box
- *  cannot rasterize inside the 45 s server timeout (2026-06-12: every free
- *  export timed out, even single tracks). 150 DPI is the configuration the
- *  smoke tests have always proven (renders in 2-7 s) and is plenty for a
- *  shared image. Paid prints keep full DPI via the order route. */
-const FREE_EXPORT_MAX_DPI = 150;
-
-/** Free/preview exports are screen- and social-destined (Instagram, sharing,
- *  phone wallpaper) — NOT print. So we render them at screen resolution, with
- *  the longest side capped here, rather than at print DPI. This is what makes
- *  the device-independent server *fallback* finish in ~1-2 s on the 1-vCPU box
- *  instead of the 6-8 s a 150-DPI print-sized render takes (render time scales
- *  with pixel count). It also shrinks the client capture canvas, easing the iOS
- *  memory pressure that causes blank readbacks in the first place. Paid prints
- *  keep full DPI via the order route (renderPoster(printDimensions)). */
-const SCREEN_EXPORT_MAX_PX = 1350;
-
-/** Right-size a poster's dimensions for a free/preview export: keep the aspect
- *  ratio (widthMm/heightMm), but pick a DPI so the longest side lands near
- *  SCREEN_EXPORT_MAX_PX — never above the print DPI or the free-export ceiling.
- *  Single source of truth for BOTH the capture and server-render paths so their
- *  output dimensions (and the reported output_px) always match. */
-function freeExportDimensions(dims: PosterDimensions): PosterDimensions {
-  const longestMm = Math.max(dims.widthMm, dims.heightMm);
-  const screenDpi = (SCREEN_EXPORT_MAX_PX * 25.4) / longestMm;
-  const dpi = Math.max(1, Math.min(dims.dpi, FREE_EXPORT_MAX_DPI, Math.round(screenDpi)));
-  return { ...dims, dpi };
-}
-
-/** Free/digital exports encode as JPEG — far smaller and faster to load and
- *  share than PNG for a photographic map poster (a ~1080×1350 JPEG is a few
- *  hundred KB vs several MB as PNG). Paid prints stay PNG (rendered clean on
- *  the server, never watermarked). q0.9 is visually lossless for this content. */
-const DIGITAL_EXPORT_FORMAT = { type: 'image/jpeg', quality: 0.9 } as const;
-const DIGITAL_EXPORT_EXT = 'jpg';
-
-/** First export of this page-load — the one most likely to hit a cold render
- *  path (Chromium/tiles/fonts fetched fresh). Module-level so it spans editor
- *  re-mounts within a session but resets on a full reload. Sent with
- *  export_completed so cold-vs-warm latency is measurable in Mixpanel. */
-let sessionHasExported = false;
-
-/** mm → device pixels at a given DPI. Mirrors the server renderer's formula;
- *  used only to label the output size on the export_completed event. */
-function mmToPx(mm: number, dpi: number): number {
-  return Math.round((mm / 25.4) * dpi);
-}
 
 /** When true (set VITE_RENDER_ON_SERVER=true), paid-print orders use the
  *  server-side Playwright renderer instead of rendering in the browser.
@@ -97,11 +35,7 @@ const RENDER_ON_SERVER = import.meta.env.VITE_RENDER_ON_SERVER === 'true';
 import { OrderButton } from '@/features/checkout/ui/OrderButton';
 import { GiftOrderButton } from '@/features/checkout/ui/GiftOrderButton';
 import { ExportSuccessModal } from './ExportSuccessModal';
-import {
-  renderExportOnServer,
-  requestHdExport,
-  type GiftContext,
-} from '@/features/checkout/services/checkoutApi';
+import { requestHdExport, type GiftContext } from '@/features/checkout/services/checkoutApi';
 import { formatDistance, formatDuration, formatPace, formatDate, formatElevation } from '@/shared/utils/format';
 import { draftKey, readDraft, usePersistDraft } from '@/shared/hooks/usePersistedDraft';
 
@@ -240,13 +174,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
       ? getThemeById(restored.themeId)
       : (carryover?.themeId ? getThemeById(carryover.themeId) : getDefaultTheme()),
   );
-  const [exporting, setExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
-  /** Last export's per-stage timings + metadata, shown in the on-screen badge
-   *  under ?debugTiming so speeds are visible on a real phone without a remote
-   *  console. Mixed string/number bag — the `*_ms` keys are the timings. */
-  const [lastTimings, setLastTimings] =
-    useState<Record<string, string | number> | null>(null);
   const [showKmMarkers, setShowKmMarkers] = useState<boolean>(restored?.showKmMarkers ?? false);
   const [showStartFinish, setShowStartFinish] = useState<boolean>(restored?.showStartFinish ?? true);
 
@@ -440,185 +368,19 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     };
   }, [buildRenderOptions, config.showStats, config.showCoordinates, mode, activity, activities]);
 
-  /** Which renderer produced the last free export — sent with the
-   *  export_completed event so the rollout is verifiable in Mixpanel. */
-  const lastRenderPathRef = useRef<'server' | 'capture' | 'canvas'>('canvas');
-
-  /** Render poster to PNG blob — used by both export and order flow.
-   *  When printDimensions is provided (ordering), always use the canvas renderer for
-   *  full-resolution output. Free exports prefer the server-side Playwright
-   *  renderer (device-independent — mobile WebGL/canvas limits produced black
-   *  exports), then fall back to the client capture renderer, then to the
-   *  legacy canvas renderer, so exports still work offline. */
-  const renderPoster = useCallback(async (printDimensions?: PosterDimensions): Promise<Blob> => {
-    // For paid prints: always use canvas renderer at full resolution
-    if (printDimensions) {
-      const opts = buildRenderOptions();
-      opts.config = { ...opts.config, dimensions: printDimensions };
-      return renderPosterToBlob(opts);
-    }
-
-    // Free exports, first choice: server-side Playwright render.
-    if (RENDER_ON_SERVER) {
-      try {
-        const dims = freeExportDimensions(config.dimensions);
-        const blob = await renderExportOnServer(buildServerPayload(dims), {
-          widthMm: dims.widthMm,
-          heightMm: dims.heightMm,
-          dpi: dims.dpi,
-        });
-        lastRenderPathRef.current = 'server';
-        return await applyWatermark(blob, DIGITAL_EXPORT_FORMAT);
-      } catch (e) {
-        // Server unreachable, busy, or rate-limited — client paths below
-        // still produce a usable (preview-resolution) export. Breadcrumb to
-        // Mixpanel so silent fallbacks are visible in the funnel.
-        console.warn('[render] Server export failed, falling back to client capture:', e);
-        window.mixpanel?.track('export_server_fallback', {
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-    }
-
-    // Second choice: capture renderer (fast, WYSIWYG from preview)
-    if (USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
-      try {
-        const blob = await capturePosterToBlob({
-          element: previewContainerRef.current,
-          map: mapInstanceRef.current,
-          dimensions: freeExportDimensions(config.dimensions),
-        });
-        lastRenderPathRef.current = 'capture';
-        return await applyWatermark(blob, DIGITAL_EXPORT_FORMAT);
-      } catch (e) {
-        if (e instanceof Error && e.message === 'MAP_BLANK') {
-          console.warn('[render] Capture renderer detected blank map, using canvas fallback');
-        } else {
-          throw e;
-        }
-      }
-    }
-    // Last resort: legacy canvas renderer
-    lastRenderPathRef.current = 'canvas';
-    return applyWatermark(await renderPosterToBlob(buildRenderOptions()), DIGITAL_EXPORT_FORMAT);
-  }, [buildRenderOptions, buildServerPayload, config.dimensions]);
-
-
-  const handleExport = useCallback(async () => {
+  const handleExport = useCallback(() => {
     if (tracks.length === 0) return;
+    // Free export is email-only (BOA-125, 2026-06-27). Clicking "Export" opens
+    // the email-collection modal directly — there is no on-device capture or
+    // instant download anymore. The modal requests a server-side 300 DPI render
+    // that is emailed after the user confirms their address (see
+    // ExportSuccessModal → requestHdExport → /api/export). Routing free exports
+    // through the server retired the whole class of iOS blank-map exports that
+    // the on-screen WebGL capture kept producing.
     window.mixpanel?.track('export_clicked', { mode, theme_id: config.themeId });
-    setExporting(true);
-
-    const isFirstExport = !sessionHasExported;
-    // ExportTimer: per-stage speeds for the whole pipeline. Surfaced three ways —
-    // Mixpanel (production split by device), a console line (read by the WebKit
-    // smoke test), and an on-screen badge under ?debugTiming (eyeball on a real
-    // phone). The dimensions are right-sized to screen/social resolution so the
-    // server fallback is fast; see freeExportDimensions.
-    const timer = createExportTimer();
-    const { device, viewport } = detectExportDevice();
-    const dims = freeExportDimensions(config.dimensions);
-    try {
-      // Collapse mobile sheet so the map is fully visible for capture
-      collapseSheetRef.current?.();
-      await new Promise((r) => setTimeout(r, 350));
-
-      let blob: Blob;
-      // INSTANT_EXPORT (BOA-125 Phase 0): grab the on-screen preview directly
-      // via the capture renderer — typically <1s. The hardened blank detection
-      // in captureRenderer throws MAP_BLANK when iOS hands back an evicted
-      // (blank) WebGL frame, routing straight to the device-independent server
-      // render below.
-      if (INSTANT_EXPORT && USE_CAPTURE_RENDERER && previewContainerRef.current && mapInstanceRef.current) {
-        const stopCapture = timer.span('capture_ms');
-        try {
-          const rawBlob = await capturePosterToBlob({
-            element: previewContainerRef.current,
-            map: mapInstanceRef.current,
-            dimensions: dims,
-            mark: timer.record,
-          });
-          stopCapture();
-          lastRenderPathRef.current = 'capture';
-          const stopWm = timer.span('watermark_ms');
-          blob = await applyWatermark(rawBlob, DIGITAL_EXPORT_FORMAT);
-          stopWm();
-        } catch (captureErr) {
-          stopCapture(); // record how long capture ran before failing
-          // Capture threw OR produced a blank map. The latter is the iOS
-          // failure mode (WebGL buffer evicted → blank readback) that shipped
-          // posters with no route/basemap, only HTML overlays. Go straight to
-          // the device-independent server render. We call it directly rather
-          // than via renderPoster()'s `RENDER_ON_SERVER` branch so the fix does
-          // not depend on the VITE_RENDER_ON_SERVER *client build* flag being
-          // set — the server has its own ENABLE_SERVER_RENDER gate and returns
-          // 503 if disabled, in which case we drop to the client chain.
-          const reason = captureErr instanceof Error ? captureErr.message : String(captureErr);
-          console.warn('[export] Instant capture failed/blank, trying server render:', captureErr);
-          window.mixpanel?.track('instant_export_fallback', { error: reason, device });
-          try {
-            const stopServer = timer.span('server_ms');
-            const rawServer = await renderExportOnServer(buildServerPayload(dims), {
-              widthMm: dims.widthMm,
-              heightMm: dims.heightMm,
-              dpi: dims.dpi,
-            });
-            stopServer();
-            lastRenderPathRef.current = 'server';
-            const stopWm = timer.span('watermark_ms');
-            blob = await applyWatermark(rawServer, DIGITAL_EXPORT_FORMAT);
-            stopWm();
-          } catch (serverErr) {
-            console.warn('[export] Server render unavailable, using client fallback chain:', serverErr);
-            blob = await renderPoster();
-          }
-        }
-      } else {
-        blob = await renderPoster();
-      }
-
-      const timings = timer.finish();
-      const filename = `runink-${config.themeId}-${mode === 'individual' ? activity?.id : 'compilation'}.${DIGITAL_EXPORT_EXT}`;
-      downloadBlob(blob, filename);
-      sessionHasExported = true;
-
-      // Single structured line for the WebKit smoke test (and Safari remote
-      // console) to parse — keep the `[export] timings` prefix stable.
-      console.info('[export] timings', JSON.stringify({
-        device,
-        viewport,
-        render_path: lastRenderPathRef.current,
-        file_bytes: blob.size,
-        ...timings,
-      }));
-      setLastTimings({ device, viewport, render_path: lastRenderPathRef.current, ...timings });
-
-      window.mixpanel?.track('export_completed', {
-        mode,
-        theme_id: config.themeId,
-        render_path: lastRenderPathRef.current,
-        device,
-        viewport,
-        size: config.dimensions.label,
-        output_px: `${mmToPx(dims.widthMm, dims.dpi)}x${mmToPx(dims.heightMm, dims.dpi)}`,
-        format: DIGITAL_EXPORT_FORMAT.type,
-        render_ms: timings.total_ms,
-        first_export: isFirstExport,
-        file_bytes: blob.size,
-        instant_export: INSTANT_EXPORT,
-        ...timings,
-      });
-
-      // Show post-export upsell modal
-      setShowExportModal(true);
-      window.mixpanel?.track('export_upsell_shown', { size: config.dimensions.label, theme_id: config.themeId });
-    } catch (err) {
-      console.error('Export failed:', err);
-      window.mixpanel?.track('export_failed', { mode, theme_id: config.themeId, device });
-    } finally {
-      setExporting(false);
-    }
-  }, [tracks, config, mode, activity, renderPoster, buildServerPayload]);
+    setShowExportModal(true);
+    window.mixpanel?.track('export_modal_shown', { size: config.dimensions.label, theme_id: config.themeId });
+  }, [tracks.length, mode, config.themeId, config.dimensions.label]);
 
   const aspectRatio = config.dimensions.widthMm / config.dimensions.heightMm;
 
@@ -657,7 +419,10 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
     onConfigChange: handleConfigChange,
     onThemeChange: handleThemeChange,
     onExport: handleExport,
-    exporting,
+    // Opening the email modal is instant — there is no long-running client
+    // render to show a busy state for anymore (free export is server-rendered
+    // and emailed). Kept in the prop shape so SettingsActions is unchanged.
+    exporting: false,
     orderButtonSlot,
   } as const;
 
@@ -778,7 +543,7 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
           actionButtons={
             <SettingsActions
               onExport={handleExport}
-              exporting={exporting}
+              exporting={false}
               orderButtonSlot={orderButtonSlot}
               dimensions={config.dimensions}
             />
@@ -787,28 +552,6 @@ export function PosterEditor({ activity, activities, mode, stravaTracksMap, onBa
           <SettingsPanel {...settingsPanelProps} hideActions />
         </MobileSettingsSheet>
       </div>
-
-      {lastTimings &&
-        typeof window !== 'undefined' &&
-        new URLSearchParams(window.location.search).has('debugTiming') && (
-          <div
-            data-export-hide="true"
-            className="fixed bottom-2 left-2 z-50 max-w-[90vw] rounded-md bg-black/85 px-3 py-2 font-mono text-[11px] leading-tight text-green-300 shadow-lg"
-            onClick={() => setLastTimings(null)}
-          >
-            <div className="text-white/60">
-              export · {lastTimings.device} · {lastTimings.render_path} ·{' '}
-              {(Number(lastTimings.file_bytes) / 1024 / 1024).toFixed(2)}MB
-            </div>
-            {Object.entries(lastTimings)
-              .filter(([k]) => k.endsWith('_ms'))
-              .map(([k, v]) => (
-                <div key={k}>
-                  {k.replace(/_ms$/, '').padEnd(13, ' ')} {v}ms
-                </div>
-              ))}
-          </div>
-        )}
 
       {showExportModal && (
         <ExportSuccessModal
