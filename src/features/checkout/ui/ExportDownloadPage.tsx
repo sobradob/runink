@@ -59,6 +59,12 @@ export function ExportDownloadPage({ exportId }: { exportId: string }) {
               Export Unavailable
             </h2>
             <p className="text-white/40 text-sm mb-6">{error}</p>
+            <a
+              href="/"
+              className="inline-block px-6 py-3 rounded-lg bg-white text-black font-medium text-sm tracking-wider uppercase hover:bg-white/90 transition-all"
+            >
+              Create a New Export
+            </a>
           </>
         ) : expired ? (
           <>

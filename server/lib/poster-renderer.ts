@@ -41,9 +41,12 @@ const TOKEN_TTL_MS = 60_000;
 /** How long we wait for the internal page to signal __POSTER_READY__.
  *  Print-DPI renders are CPU-bound in software WebGL on the 1-vCPU production
  *  box: 30×40 cm at 300 DPI measured 23.5 s at 1 CPU-limited local core, and
- *  the DO shared vCPU is slower still, so 45 s was not enough. Env-overridable
- *  for measurement runs (raise it and time an unclamped render). */
-const RENDER_TIMEOUT_MS = parseInt(process.env.RENDER_TIMEOUT_MS || '', 10) || 120_000;
+ *  the DO shared vCPU is slower still. 120 s was not enough for heavier posters
+ *  (large size / composite / dense map) — a real HD export timed out at 128 s
+ *  (EXP-8A8F7D2D). Raised to 180 s for headroom; the HD-export DPI/px cap
+ *  (hdExportDimensions in export-async) is the primary fix, this is the safety
+ *  net. Env-overridable (RENDER_TIMEOUT_MS) to tune without a deploy. */
+const RENDER_TIMEOUT_MS = parseInt(process.env.RENDER_TIMEOUT_MS || '', 10) || 180_000;
 /** Max concurrent renders. Each render holds a Chromium context (~80-150 MB).
  *  On the 2 GB DO instance, 2 is the safe cap before we risk OOM. */
 const MAX_CONCURRENT_RENDERS = 2;
