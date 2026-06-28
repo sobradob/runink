@@ -258,22 +258,6 @@ export async function renderPosterOnServer(
   return body;
 }
 
-/**
- * Free-export render path: same payload and retry semantics as
- * renderPosterOnServer, but the server streams the PNG straight back instead
- * of attaching it to an order. Callers should fall back to client-side
- * rendering when this throws — the export must still succeed offline.
- */
-export async function renderExportOnServer(
-  payload: unknown,
-  dimensions: { widthMm: number; heightMm: number; dpi: number },
-  callerSignal?: AbortSignal,
-): Promise<Blob> {
-  const res = await fetchRenderWithRetry('/api/render/export', { payload, dimensions }, callerSignal);
-  recordRenderRequestId(res.headers.get('X-Render-Request-Id'));
-  return res.blob();
-}
-
 // === HD Export (email delivery) ===
 
 export async function requestHdExport(params: {
