@@ -4,7 +4,7 @@ import type { Theme } from '@/types/theme';
 import type { TrackData } from '@/types/activity';
 import type { LayerVisibility, MapMarker } from '@/types/poster';
 import { buildMapStyle } from '../infrastructure/maplibreStyle';
-import { addRunPathLayers, updateRunPaths, updateRunPathColors } from '../infrastructure/runPathLayer';
+import { addRunPathLayers, updateRunPaths, updateRunPathColors, posterScale } from '../infrastructure/runPathLayer';
 import { boundsFromTracks, bboxToMaplibre } from '@/shared/geo/bounds';
 
 const LAYER_GROUPS: Record<keyof LayerVisibility, string[]> = {
@@ -43,6 +43,9 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
   const trackIdsRef = useRef<string>('');
   // Store HTML markers for cleanup
   const htmlMarkersRef = useRef<maplibregl.Marker[]>([]);
+  // Debounced rescale of width-proportional line/markers on container resize
+  const restyleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastWidthRef = useRef<number>(0);
 
   // Refs for latest props
   const tracksRef = useRef(tracks);
@@ -81,7 +84,22 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
 
       mapRef.current = map;
 
-      const ro = new ResizeObserver(() => map.resize());
+      const ro = new ResizeObserver(() => {
+        map.resize();
+        // Line width and marker sizes are proportional to the container width
+        // (posterScale). When the width changes — poster-size switch, window
+        // resize, rotation — re-apply them so the editor stays consistent with
+        // the render. Debounced; only fires when the width actually changes.
+        if (restyleTimerRef.current) clearTimeout(restyleTimerRef.current);
+        restyleTimerRef.current = setTimeout(() => {
+          if (!readyRef.current || !mapRef.current) return;
+          const w = mapRef.current.getContainer()?.clientWidth || 0;
+          if (w === lastWidthRef.current) return;
+          lastWidthRef.current = w;
+          updateRunPathColors(mapRef.current, themeRef.current, compilationRef.current);
+          syncHtmlMarkers(mapRef.current, markersRef.current, themeRef.current, htmlMarkersRef);
+        }, 150);
+      });
       ro.observe(containerRef.current);
 
       map.on('load', () => {
@@ -127,6 +145,7 @@ export function MapPreview({ theme, tracks, isCompilation, bearing, layers, mark
     return () => {
       clearTimeout(timer);
       if (loadFallbackRef.current) clearTimeout(loadFallbackRef.current);
+      if (restyleTimerRef.current) clearTimeout(restyleTimerRef.current);
       readyRef.current = false;
       // Clean up HTML markers
       htmlMarkersRef.current.forEach(m => m.remove());
@@ -287,6 +306,12 @@ function syncHtmlMarkers(
   htmlMarkersRef.current.forEach(m => m.remove());
   htmlMarkersRef.current = [];
 
+  // Scale fixed-px marker sizes by the map width, same as the route line and
+  // cqw text, so markers keep their proportion from the ~360px mobile preview
+  // to the ~1080–1772px render. See tasks/preview-vs-render-analysis.md.
+  const s = posterScale(map);
+  const px = (n: number) => `${n * s}px`;
+
   for (const m of markers) {
     const el = document.createElement('div');
     el.style.display = 'flex';
@@ -299,20 +324,20 @@ function syncHtmlMarkers(
     if (hasIcon) {
       const iconEl = document.createElement('div');
       iconEl.textContent = ICON_EMOJI[m.icon!];
-      iconEl.style.fontSize = m.type === 'km' ? '12px' : '20px';
-      iconEl.style.filter = 'drop-shadow(0 1px 3px rgba(0,0,0,0.8))';
+      iconEl.style.fontSize = px(m.type === 'km' ? 12 : 20);
+      iconEl.style.filter = `drop-shadow(0 ${px(1)} ${px(3)} rgba(0,0,0,0.8))`;
       iconEl.style.lineHeight = '1';
       el.appendChild(iconEl);
     } else {
       // Dot marker
       const dot = document.createElement('div');
       const size = m.type === 'km' ? 8 : 10;
-      dot.style.width = `${size}px`;
-      dot.style.height = `${size}px`;
+      dot.style.width = px(size);
+      dot.style.height = px(size);
       dot.style.borderRadius = '50%';
       dot.style.backgroundColor = theme.runPath.core;
-      dot.style.border = `2px solid ${theme.colors.background}`;
-      dot.style.boxShadow = `0 0 6px ${theme.runPath.glow}60`;
+      dot.style.border = `${px(2)} solid ${theme.colors.background}`;
+      dot.style.boxShadow = `0 0 ${px(6)} ${theme.runPath.glow}60`;
       el.appendChild(dot);
     }
 
@@ -320,10 +345,10 @@ function syncHtmlMarkers(
     if (m.label) {
       const labelEl = document.createElement('div');
       labelEl.textContent = m.label;
-      labelEl.style.fontSize = m.type === 'km' ? '9px' : '10px';
+      labelEl.style.fontSize = px(m.type === 'km' ? 9 : 10);
       labelEl.style.color = theme.colors.text;
-      labelEl.style.textShadow = `0 1px 3px ${theme.colors.background}, 0 0 6px ${theme.colors.background}`;
-      labelEl.style.marginTop = '2px';
+      labelEl.style.textShadow = `0 ${px(1)} ${px(3)} ${theme.colors.background}, 0 0 ${px(6)} ${theme.colors.background}`;
+      labelEl.style.marginTop = px(2);
       labelEl.style.fontFamily = 'var(--font-body)';
       labelEl.style.fontWeight = '500';
       labelEl.style.letterSpacing = '0.05em';
