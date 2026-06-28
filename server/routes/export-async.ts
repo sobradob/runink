@@ -226,6 +226,11 @@ async function renderHdExport(
         dpi: renderDims.dpi,
         internalBaseUrl,
         requestId,
+        // Free HD-email export is the watermarked lead magnet — the clean print
+        // is the paid differentiator. This is the only renderPoster caller that
+        // enables the watermark; if it fails the surrounding attempt loop retries
+        // and ultimately emails a failure, so we never ship a clean free PNG.
+        watermark: true,
       });
 
       const key = `exports/${exportId}/poster.png`;

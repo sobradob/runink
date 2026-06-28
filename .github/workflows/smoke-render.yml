@@ -19,6 +19,7 @@ on:
       - 'server/**'
       - 'scripts/smoke-render.ts'
       - 'scripts/smoke-export.ts'
+      - 'scripts/smoke-server-watermark.mjs'
       - 'scripts/smoke-fixture.ts'
       - 'src/features/poster/**'
       - 'src/features/map/**'
@@ -36,6 +37,7 @@ on:
       - 'server/**'
       - 'scripts/smoke-render.ts'
       - 'scripts/smoke-export.ts'
+      - 'scripts/smoke-server-watermark.mjs'
       - 'scripts/smoke-fixture.ts'
       - 'src/features/poster/**'
       - 'src/features/map/**'
@@ -170,6 +172,13 @@ jobs:
         # Exercises the free-export route end-to-end (session auth + render +
         # PNG streaming). The script self-asserts content type and >50 KB.
         run: docker exec -e PORT=8099 runink-smoke node --import tsx scripts/smoke-export.ts
+
+      - name: Run server watermark smoke (inside container)
+        # Guards the free HD-email export watermark (server/lib/watermark.ts):
+        # the email path once shipped a CLEAN PNG, undercutting the paid print.
+        # Asserts watermarkPng() produces a valid PNG that differs from the
+        # clean buffer. Paid orders never set opts.watermark, so they stay clean.
+        run: docker exec runink-smoke node --import tsx scripts/smoke-server-watermark.mjs
 
       - name: Assert PNG non-trivial (> 50 KB)
         run: |

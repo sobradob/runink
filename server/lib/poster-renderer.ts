@@ -18,6 +18,7 @@
 import { chromium, type Browser } from 'playwright';
 import { randomUUID } from 'crypto';
 import { log } from './logger.js';
+import { watermarkPng } from './watermark.js';
 
 export interface RenderPayload {
   /** Serialised Theme — colours, fonts, etc. */
@@ -164,6 +165,11 @@ export interface RenderOptions {
   /** Override the automatic dpi/LAYOUT_DPI device scale factor (smoke tests
    *  only — e.g. force 1 to reproduce the raw-print-pixel-viewport layout). */
   deviceScaleFactor?: number;
+  /** Composite the runink watermark onto the output before returning. ONLY the
+   *  free HD-email export sets this — paid prints (renderOrderPosterAsync,
+   *  /api/render/order) must stay clean, so it defaults off. This is the single
+   *  chokepoint that decides watermarked vs clean. */
+  watermark?: boolean;
 }
 
 /**
@@ -240,6 +246,12 @@ export async function renderPoster(
       const el = page.locator('[data-poster-root]');
       const buf = await el.screenshot({ type: 'png', animations: 'disabled' });
 
+      // Watermark the free HD-email export only (opts.watermark). Done in this
+      // same page so it reuses the render slot we already hold — no extra
+      // Chromium context, stays within the concurrency cap. Paid renders skip
+      // this and return the clean buffer.
+      const out = opts.watermark ? await watermarkPng(page, buf) : buf;
+
       log.info('Rendered poster', {
         scope: 'render',
         requestId,
@@ -248,9 +260,10 @@ export async function renderPoster(
         widthPx: Math.round(viewportWidth * dsf),
         heightPx: Math.round(viewportHeight * dsf),
         deviceScaleFactor: dsf,
-        bufferBytes: buf.length,
+        watermarked: !!opts.watermark,
+        bufferBytes: out.length,
       });
-      return buf;
+      return out;
     } finally {
       await context.close();
     }
