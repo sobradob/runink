@@ -294,6 +294,50 @@ export async function sendExportReady(params: {
   }
 }
 
+export async function sendExportFailed(params: {
+  to: string;
+  retryUrl: string;
+}): Promise<boolean> {
+  const client = getClient();
+  if (!client) {
+    console.log(`[email] Would send export-failed to ${params.to} (RESEND_API_KEY not set)`);
+    return false;
+  }
+
+  try {
+    const { data, error } = await client.emails.send({
+      from: FROM(),
+      to: params.to,
+      // BCC the owner so render failures are visible without scraping logs.
+      ...(NOTIFY() && { bcc: NOTIFY() }),
+      subject: 'Your RunInk poster needs another try',
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #1a1a1a;">We couldn't finish your poster</h1>
+          <p>Sorry — something went wrong while rendering your high-definition poster, so it wasn't created this time. No charge, nothing lost.</p>
+          <p>Most of the time a quick retry from the editor does the trick.</p>
+          <p style="margin: 24px 0;">
+            <a href="${params.retryUrl}" style="display: inline-block; padding: 14px 36px; background: #1a1a1a; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 16px;">
+              Try Again
+            </a>
+          </p>
+          <p style="color: #999; font-size: 12px; margin-top: 24px;">If it keeps failing, reply to this email and we'll sort it out.</p>
+          <p style="margin-top: 30px; color: #999; font-size: 12px;">RunInk — Your runs, beautifully printed.</p>
+        </div>
+      `,
+    });
+    if (error) {
+      console.error('[email] Export-failed email failed:', error);
+      return false;
+    }
+    console.log(`[email] Export-failed sent to ${params.to}, id: ${data.id}`);
+    return true;
+  } catch (err) {
+    console.error('[email] Failed to send export-failed:', err);
+    return false;
+  }
+}
+
 /**
  * Send a purchase notification to the site owner (NOTIFY_EMAIL).
  * This is a separate API call from customer emails so it can't fail alongside them.
