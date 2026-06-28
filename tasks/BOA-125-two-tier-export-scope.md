@@ -6,6 +6,28 @@
 
 ---
 
+## ⚠ PROD GATE — emails only work for everyone once Resend domain is verified
+
+Free export is email-only, so email deliverability IS the feature. `EMAIL_FROM` is already
+`hello@runink.app` in the DO app spec — but Resend blocks sends from a custom domain to anyone
+except the account owner (sobradob@gmail.com) until the **domain is verified** in Resend. That is
+the *only* reason non-owner emails fail. No code change needed. One-time steps:
+
+1. Resend → Domains → Add `runink.app` (or `mail.runink.app` — subdomain is cleaner for reputation).
+2. Add the DNS records Resend lists (MX, DKIM TXT, SPF TXT, optional DMARC) where runink.app DNS
+   lives. The DO app spec has `zone: runink.app`, so DNS is on **DigitalOcean** (Networking →
+   Domains → runink.app) unless nameservers point elsewhere (Cloudflare). Verify which.
+3. Click Verify in Resend (green = sends to any address allowed).
+4. Ensure `EMAIL_FROM` matches the verified domain. Bare `runink.app` → `hello@runink.app` is fine;
+   `mail.runink.app` → set `EMAIL_FROM=RunInk <hello@mail.runink.app>` in DO env.
+5. Confirm the LIVE DO app actually has `RESEND_API_KEY` + `EMAIL_FROM` set (the .do/*.yaml is a
+   backup snapshot, not proof). Startup logs a `WARNING: EMAIL_FROM uses resend.dev test domain`
+   line (server/index.ts:179) if it's wrong — its absence means it's correct.
+
+Test: send to a non-Gmail address you control; Resend dashboard shows delivered vs bounced/blocked.
+
+---
+
 ## ⮕ REVISED PLAN (2026-06-27) — READ THIS FIRST
 
 The instant/client-capture free tier is being **removed**. It has proven too fragile on-device
